@@ -1,0 +1,67 @@
+package API1.controller;
+
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.ISO87APackager;
+
+import java.util.Map;
+import java.util.HashMap;
+
+/**
+ * Java 8 style
+ * Build iso for inquiry(432020)/payment(912020)
+ * bank code=970403 => field(32)=970403
+ */
+public class Api1JsonIsoConverter {
+
+    public static ISOMsg buildIsoForInquiry(Map<String,String> body){
+        return buildIso(body, "432020");
+    }
+
+    public static ISOMsg buildIsoForPayment(Map<String,String> body){
+        return buildIso(body, "912020");
+    }
+
+    private static ISOMsg buildIso(Map<String,String> b, String defaultPC){
+        try{
+            String src= b.containsKey("sourcePan")? b.get("sourcePan"):"";
+            String dst= b.containsKey("destPan")? b.get("destPan"):"";
+            String f100= b.containsKey("f100")? b.get("f100"):"970401"; 
+            String pc= b.containsKey("processingCode")? b.get("processingCode"): defaultPC;
+
+            long amt=0L;
+            if(b.containsKey("amount")){
+                amt= Long.parseLong(b.get("amount"));
+            }
+
+            ISOMsg iso=new ISOMsg();
+            iso.setPackager(new ISO87APackager());
+            iso.setMTI("0200");
+            iso.set(2, src);
+            iso.set(3, pc);
+            iso.set(4, String.format("%012d", amt));
+            iso.set(32, "970403");
+            iso.set(100, f100);
+            iso.set(103, dst);
+            iso.set(11, String.format("%06d",(int)(Math.random()*999999)));
+            return iso;
+        } catch(Exception e){
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public static Map<String,String> parseIsoToJson(ISOMsg iso) throws ISOException{
+        Map<String,String> resp=new HashMap<String,String>();
+        if(iso==null){
+            resp.put("field39","68");
+            return resp;
+        }
+        String rc="96";
+		if(iso.hasField(39)){
+		    rc= iso.getString(39);
+		}
+		resp.put("field39", rc);
+        return resp;
+    }
+}

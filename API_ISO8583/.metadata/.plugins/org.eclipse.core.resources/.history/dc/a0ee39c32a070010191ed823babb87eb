@@ -1,0 +1,159 @@
+package NganLuong.service;
+
+import org.springframework.stereotype.Service;
+import utils.JsonMapperUtil;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+public class NganLuongService {
+    private static final String BANK_CODE = "970404";
+    // API2 (cầu nối NganLuong <-> Napas)
+    private static final String API2_URL = "http://localhost:8085/api2";
+
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("101010", new Account("101010",9_000_000L,"ACTIVE"));
+        ACCOUNTS.put("121212", new Account("121212",2_000_000L,"ACTIVE"));
+        ACCOUNTS.put("131313", new Account("131313",5_000_000L,"LOCKED"));
+    }
+
+    // ========== INQUIRY ==========
+    public Map<String,String> processInquiry(Map<String,String> req){
+        // Nếu F100 != 970404 => bank này là “gửi” => log request => forward => ko log response
+        if(!BANK_CODE.equals(req.get("F100"))){
+            logRequest("NganLuong", "INQUIRY", req);
+            String respJson = doHttpPost(API2_URL + "/inquiry", JsonMapperUtil.toJson(req));
+            if(respJson==null) return errorResp(req,"96");
+            return JsonMapperUtil.fromJson(respJson);
+        } else {
+            // F100=970404 => bank nhận => build local response => log
+            String destAcct = req.getOrDefault("F103","");
+            Account acc = ACCOUNTS.get(destAcct);
+
+            String rc;
+            if(acc == null) {
+                rc="14";
+            } else if(!"ACTIVE".equalsIgnoreCase(acc.getStatus())){
+                rc="62";
+            } else {
+                rc="00";
+            }
+            Map<String,String> resp = new HashMap<>(req);
+            resp.put("F1","0210");
+            resp.put("F39", rc);
+
+            logResponse("NganLuong","INQUIRY-RESP", resp);
+
+            return resp;
+        }
+    }
+
+    // ========== PAYMENT ==========
+    public Map<String,String> processPayment(Map<String,String> req){
+        if(!BANK_CODE.equals(req.get("F100"))){
+            // Gửi => in request => forward => no resp log
+            logRequest("NganLuong", "PAYMENT", req);
+            String respJson = doHttpPost(API2_URL + "/payment", JsonMapperUtil.toJson(req));
+            if(respJson==null) return errorResp(req,"96");
+            return JsonMapperUtil.fromJson(respJson);
+        } else {
+            // Nhận => check => build => log response
+            String destAcct = req.getOrDefault("F103","");
+            Account acc = ACCOUNTS.get(destAcct);
+
+            String rc;
+            if(acc == null) {
+                rc="14";
+            } else if(!"ACTIVE".equalsIgnoreCase(acc.getStatus())){
+                rc="62";
+            } else {
+                long amt = parseLongSafe(req.getOrDefault("F4","0"));
+                acc.setBalance(acc.getBalance() + amt);
+                rc="00";
+            }
+            Map<String,String> resp = new HashMap<>(req);
+            resp.put("F1","0210");
+            resp.put("F39", rc);
+
+            logResponse("NganLuong","PAYMENT-RESP", resp);
+
+            return resp;
+        }
+    }
+
+    // -------------------------------------------
+    private void logRequest(String bankName, String desc, Map<String,String> data){
+        // Bank gửi => in request (MTI=0200)
+        System.out.println("\n=== ["+bankName+"] Outbound "+desc+" REQUEST ===");
+        data.forEach((k,v)-> System.out.println(k+"="+v));
+        System.out.println("======================================\n");
+    }
+
+    private void logResponse(String bankName, String desc, Map<String,String> data){
+        // Bank nhận => in response (MTI=0210)
+        System.out.println("\n=== ["+bankName+"] Local "+desc+" RESPONSE ===");
+        data.forEach((k,v)-> System.out.println(k+"="+v));
+        System.out.println("======================================\n");
+    }
+
+    private String doHttpPost(String url, String body){
+        HttpURLConnection conn=null;
+        try{
+            URL u=new URL(url);
+            conn=(HttpURLConnection)u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+
+            try(OutputStream out=conn.getOutputStream()){
+                out.write(body.getBytes("UTF-8"));
+            }
+
+            ByteArrayOutputStream baos=new ByteArrayOutputStream();
+            try(InputStream in=conn.getInputStream()){
+                byte[] buf=new byte[4096];
+                int len;
+                while((len=in.read(buf))!=-1){
+                    baos.write(buf,0,len);
+                }
+            }
+            return baos.toString("UTF-8");
+        } catch(Exception e){
+            e.printStackTrace();
+            return null;
+        } finally {
+            if(conn!=null) conn.disconnect();
+        }
+    }
+
+    private Map<String,String> errorResp(Map<String,String> req, String rc){
+        Map<String,String> e=new HashMap<>(req);
+        e.put("F1","0210");
+        e.put("F39", rc);
+        return e;
+    }
+
+    private long parseLongSafe(String s){
+        try{return Long.parseLong(s);}catch(Exception e){return 0;}
+    }
+
+    private static class Account {
+        private String pan;
+        private long balance;
+        private String status;
+        public Account(String p,long b,String s){
+            pan=p; balance=b; status=s;
+        }
+        public long getBalance(){return balance;}
+        public void setBalance(long x){balance=x;}
+        public String getStatus(){return status;}
+    }
+}

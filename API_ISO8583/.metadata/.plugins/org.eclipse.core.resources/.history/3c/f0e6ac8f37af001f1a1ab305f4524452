@@ -1,0 +1,73 @@
+package sender;
+
+import org.jpos.iso.*;
+import org.jpos.iso.packager.ISO87APackager;
+
+import java.io.IOException;
+import java.net.Socket;
+
+public class SimulatorSocketSender {
+
+    private static final String SERVER_HOST = "localhost";
+    private static final int SERVER_PORT = 9090;
+
+    public void sendMessage(String mti, String[] fields) {
+        try (Socket socket = new Socket(SERVER_HOST, SERVER_PORT)) {
+            ISOMsg isoMsg = createISO8583Message(mti, fields);
+            byte[] packedMessage = isoMsg.pack();
+
+            System.out.println("Packed ISO-8583 message: " + new String(packedMessage));  // Log message content
+
+            socket.getOutputStream().write(packedMessage);
+            socket.getOutputStream().flush();
+
+            System.out.println("Message sent to Socket Server. Waiting for response...");
+
+            byte[] buffer = new byte[4096];
+            int bytesRead = socket.getInputStream().read(buffer);
+            if (bytesRead > 0) {
+                byte[] response = new byte[bytesRead];
+                System.arraycopy(buffer, 0, response, 0, bytesRead);
+
+                ISOMsg isoResponse = unpackISOMessage(response);
+                System.out.println("Received response with MTI: " + isoResponse.getMTI());
+            } else {
+                System.out.println("No response received from Socket Server.");
+            }
+        } catch (IOException | ISOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private ISOMsg createISO8583Message(String mti, String[] fields) throws ISOException {
+        ISOMsg isoMsg = new ISOMsg();
+        isoMsg.setPackager(new ISO87APackager());
+        isoMsg.setMTI(mti);
+
+        // Đảm bảo bạn đặt dữ liệu đúng cho các trường (field)
+        for (int i = 0; i < fields.length; i++) {
+            if (fields[i] != null) {
+                isoMsg.set(i + 1, fields[i]);  // Chỉ số trường ISO-8583 bắt đầu từ 1
+            }
+        }
+        return isoMsg;
+    }
+
+    private ISOMsg unpackISOMessage(byte[] isoMessage) throws ISOException {
+        ISOMsg isoMsg = new ISOMsg();
+        isoMsg.setPackager(new ISO87APackager());
+        isoMsg.unpack(isoMessage);
+        return isoMsg;
+    }
+
+    public static void main(String[] args) {
+        SimulatorSocketSender sender = new SimulatorSocketSender();
+
+        // Thay vì các field giả, bạn sẽ thay thế bằng các giá trị thực tế
+        sender.sendMessage("0200", new String[] {
+            "1234567890123789",  // PAN
+            "111111",             // Processing Code
+            "2222"                // Transaction Amount
+        });
+    }
+}

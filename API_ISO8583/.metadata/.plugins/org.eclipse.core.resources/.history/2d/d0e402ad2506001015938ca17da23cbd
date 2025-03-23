@@ -1,0 +1,180 @@
+package NganLuong.service;
+
+import org.springframework.stereotype.Service;
+import utils.JsonMapperUtil;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+public class NganLuongService {
+    private static final String BANK_CODE = "970404";
+    private static final String API2_URL = "http://localhost:8085/api2";
+
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("101010", new Account("101010", 9000000L, "ACTIVE"));
+        ACCOUNTS.put("777777", new Account("777777", 2000000L, "ACTIVE"));
+        ACCOUNTS.put("131313", new Account("131313", 5000000L, "LOCKED"));
+    }
+
+    public Map<String, String> processInquiry(Map<String, String> req) {
+        logInbound("NganLuong", "/inquiry", req);
+
+        // Chuẩn hóa và bổ sung các trường bắt buộc
+        Map<String, String> standardizedReq = standardizeRequest(req, "432020");
+
+        Map<String, String> response;
+        if (!BANK_CODE.equals(standardizedReq.get("F100"))) {
+            response = sendToApi2(standardizedReq, "/inquiry");
+        } else {
+            String srcPan = standardizedReq.get("F2");
+            Account account = ACCOUNTS.get(srcPan);
+            String rc = (account == null || !"ACTIVE".equalsIgnoreCase(account.getStatus())) ? "14" : "00";
+            response = new HashMap<>(standardizedReq);
+            response.put("F39", rc);
+        }
+
+        logOutbound("NganLuong", "/inquiry", standardizedReq);
+        logInbound("NganLuong", "/inquiryResp", response);
+        return response;
+    }
+
+    public Map<String, String> processPayment(Map<String, String> req) {
+        logInbound("NganLuong", "/payment", req);
+
+        // Chuẩn hóa và bổ sung các trường bắt buộc
+        Map<String, String> standardizedReq = standardizeRequest(req, "912020");
+
+        Map<String, String> response;
+        if (!BANK_CODE.equals(standardizedReq.get("F100"))) {
+            response = sendToApi2(standardizedReq, "/payment");
+        } else {
+            String srcPan = standardizedReq.get("F2");
+            long amt = Long.parseLong(standardizedReq.getOrDefault("F4", "0"));
+            Account account = ACCOUNTS.get(srcPan);
+            String rc = (account == null) ? "14" :
+                       (!"ACTIVE".equalsIgnoreCase(account.getStatus())) ? "62" :
+                       (account.getBalance() < amt) ? "51" : "00";
+            if ("00".equals(rc)) account.setBalance(account.getBalance() - amt);
+            response = new HashMap<>(standardizedReq);
+            response.put("F39", rc);
+        }
+
+        logOutbound("NganLuong", "/payment", standardizedReq);
+        logInbound("NganLuong", "/paymentResp", response);
+        return response;
+    }
+
+    private Map<String, String> standardizeRequest(Map<String, String> req, String defaultPC) {
+        Map<String, String> standardized = new HashMap<>(req);
+        if (!standardized.containsKey("F1")) standardized.put("F1", "0200");
+        if (!standardized.containsKey("F2")) standardized.put("F2", req.getOrDefault("sourcePan", ""));
+        if (!standardized.containsKey("F3")) standardized.put("F3", defaultPC);
+        if (!standardized.containsKey("F4")) standardized.put("F4", "000000000000");
+        else {
+            try {
+                long amt = Long.parseLong(standardized.get("F4"));
+                standardized.put("F4", String.format("%012d", amt));
+            } catch (Exception e) {
+                standardized.put("F4", "000000000000");
+            }
+        }
+        if (!standardized.containsKey("F11")) standardized.put("F11", generateF11());
+        if (!standardized.containsKey("F12")) standardized.put("F12", generateF12());
+        if (!standardized.containsKey("F13")) standardized.put("F13", generateF13());
+        standardized.put("F32", BANK_CODE);
+        if (!standardized.containsKey("F100")) standardized.put("F100", "");
+        if (!standardized.containsKey("F103")) standardized.put("F103", req.getOrDefault("destPan", ""));
+        return standardized;
+    }
+
+    public Map<String, String> sendToApi2(Map<String, String> jsonMap, String endpoint) {
+        String url = API2_URL + endpoint;
+        System.out.println("=== [NganLuong] Outbound to API2 " + endpoint + " ===");
+        System.out.println(JsonMapperUtil.toJson(jsonMap));
+        String responseJson = doHttpPost(url, JsonMapperUtil.toJson(jsonMap));
+        if (responseJson == null) {
+            System.out.println("[NganLuong] Error: No response from API2");
+            Map<String, String> errorResp = new HashMap<>(jsonMap);
+            errorResp.put("F39", "96");
+            return errorResp;
+        }
+        Map<String, String> response = JsonMapperUtil.fromJson(responseJson);
+        return response;
+    }
+
+    private String doHttpPost(String url, String body) {
+        HttpURLConnection conn = null;
+        try {
+            URL u = new URL(url);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            OutputStream out = conn.getOutputStream();
+            out.write(body.getBytes("UTF-8"));
+            out.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            InputStream in = conn.getInputStream();
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) != -1) baos.write(buf, 0, len);
+            in.close();
+            return baos.toString("UTF-8");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private String generateF11() {
+        return String.format("%06d", (int) (Math.random() * 1000000));
+    }
+
+    private String generateF12() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
+    }
+
+    private String generateF13() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMdd"));
+    }
+
+    private void logInbound(String service, String path, Map<String, String> data) {
+        System.out.println("=== [" + service + "] Inbound " + path + " ===");
+        data.forEach((k, v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+
+    private void logOutbound(String service, String path, Map<String, String> data) {
+        System.out.println("=== [" + service + "] Outbound " + path + " ===");
+        data.forEach((k, v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+
+    private static class Account {
+        private String pan;
+        private long balance;
+        private String status;
+
+        public Account(String pan, long balance, String status) {
+            this.pan = pan;
+            this.balance = balance;
+            this.status = status;
+        }
+
+        public String getPan() { return pan; }
+        public long getBalance() { return balance; }
+        public void setBalance(long balance) { this.balance = balance; }
+        public String getStatus() { return status; }
+    }
+}

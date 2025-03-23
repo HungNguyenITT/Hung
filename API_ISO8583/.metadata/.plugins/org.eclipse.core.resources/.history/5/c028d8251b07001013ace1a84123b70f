@@ -1,0 +1,26 @@
+package NganLuong.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+
+import NganLuong.service.NganLuongService;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/ngl")
+public class NganLuongController {
+
+    @Autowired
+    private NganLuongService nganLuongService;
+
+    @PostMapping(value="/inquiry", consumes=MediaType.APPLICATION_JSON_VALUE, produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> inquiry(@RequestBody Map<String, String> request) {
+        return nganLuongService.processInquiry(request);
+    }
+
+    @PostMapping(value="/payment", consumes=MediaType.APPLICATION_JSON_VALUE, produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> payment(@RequestBody Map<String, String> request) {
+        return nganLuongService.processPayment(request);
+    }
+}

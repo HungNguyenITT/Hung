@@ -1,0 +1,8 @@
+API\ISO8583\service\AccountService$Account.class
+API\ISO8583\application.class
+API\ISO8583\repository\ISO8583MessageRepository.class
+API\ISO8583\controller\ISO8583Controller.class
+API\ISO8583\dto\ISO8583RequestDTO.class
+API\ISO8583\entity\ISO8583Message.class
+API\ISO8583\service\AccountService.class
+API\ISO8583\service\ISO8583Service.class

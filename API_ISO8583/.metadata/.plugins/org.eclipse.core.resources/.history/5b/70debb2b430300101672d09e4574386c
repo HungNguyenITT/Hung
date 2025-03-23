@@ -1,0 +1,82 @@
+package API1.controller;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.ISOException;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.IOException;
+import java.util.Map;
+import java.util.HashMap;
+
+@RestController
+@RequestMapping("/api1")
+public class API1Controller {
+
+    private final API1SocketServer napasSocket;
+
+    public API1Controller(API1SocketServer socket){
+        this.napasSocket= socket;
+    }
+
+    @PostMapping(value="/inquiry", consumes=MediaType.APPLICATION_JSON_VALUE,
+                 produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,String> handleInquiry(@RequestBody Map<String,String> body){
+        System.out.println("[Api1Controller] /inquiry => body="+body);
+
+        ISOMsg isoReq= Api1JsonIsoConverter.buildIsoForInquiry(body);
+        if(isoReq==null){
+            Map<String,String> r=new HashMap<String,String>();
+            r.put("field39","96");
+            return r;
+        }
+        try {
+            ISOMsg isoResp= napasSocket.sendAndWaitResponse(isoReq,15000);
+            if(isoResp==null){
+                Map<String,String> t=new HashMap<String,String>();
+                t.put("field39","68");
+                return t;
+            }
+            // parse iso->json
+            Map<String,String> respJson= Api1JsonIsoConverter.parseIsoToJson(isoResp);
+            System.out.println("[Api1Controller] => respJson="+respJson);
+            return respJson;
+        } catch(ISOException e){
+            e.printStackTrace();
+        } catch(IOException e){
+            e.printStackTrace();
+        }
+        Map<String,String> ex=new HashMap<String,String>();
+        ex.put("field39","96");
+        return ex;
+    }
+
+    @PostMapping(value="/payment", consumes= MediaType.APPLICATION_JSON_VALUE,
+                 produces= MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,String> handlePayment(@RequestBody Map<String,String> body){
+        System.out.println("[Api1Controller] /payment => body="+body);
+
+        ISOMsg isoReq= Api1JsonIsoConverter.buildIsoForPayment(body);
+        if(isoReq==null){
+            Map<String,String> r=new HashMap<String,String>();
+            r.put("field39","96");
+            return r;
+        }
+        try {
+            ISOMsg isoResp= napasSocket.sendAndWaitResponse(isoReq,15000);
+            if(isoResp==null){
+                Map<String,String> t=new HashMap<String,String>();
+                t.put("field39","68");
+                return t;
+            }
+            Map<String,String> respJson= Api1JsonIsoConverter.parseIsoToJson(isoResp);
+            System.out.println("[Api1Controller] => respJson="+respJson);
+            return respJson;
+        } catch(Exception e){
+            e.printStackTrace();
+        }
+        Map<String,String> ex=new HashMap<String,String>();
+        ex.put("field39","96");
+        return ex;
+    }
+}

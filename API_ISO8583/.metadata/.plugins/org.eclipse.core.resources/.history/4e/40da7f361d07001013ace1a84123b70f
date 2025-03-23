@@ -1,0 +1,179 @@
+package NganLuong.service;
+
+import org.springframework.stereotype.Service;
+import utils.JsonMapperUtil;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+public class NganLuongService {
+    private static final String BANK_CODE = "970404";
+    // API2 (cầu nối) chạy port 8085
+    private static final String API2_URL = "http://localhost:8085/api2";
+
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("101010", new Account("101010",9_000_000L,"ACTIVE"));
+        ACCOUNTS.put("121212", new Account("121212",2_000_000L,"ACTIVE"));
+        ACCOUNTS.put("131313", new Account("131313",5_000_000L,"LOCKED"));
+    }
+
+    public Map<String,String> processInquiry(Map<String,String> req){
+        logInbound("NganLuong","/inquiry", req);
+
+        Map<String,String> st = standardizeRequest(req,"432020");
+
+        Map<String,String> resp;
+        if(!BANK_CODE.equals(st.get("F100"))){
+            // => forward sang API2
+            resp = sendToApi2(st, "/inquiry");
+        } else {
+            // local
+            String pan = st.getOrDefault("F2","");
+            Account acc = ACCOUNTS.get(pan);
+            String rc = (acc==null || !"ACTIVE".equalsIgnoreCase(acc.getStatus()))? "14":"00";
+
+            resp = new HashMap<>(st);
+            resp.put("F39", rc);
+        }
+
+        logOutbound("NganLuong","/inquiry", st);
+        logInbound("NganLuong","/inquiryResp", resp);
+        return resp;
+    }
+
+    public Map<String,String> processPayment(Map<String,String> req){
+        logInbound("NganLuong","/payment", req);
+
+        Map<String,String> st = standardizeRequest(req,"912020");
+
+        Map<String,String> resp;
+        if(!BANK_CODE.equals(st.get("F100"))){
+            resp = sendToApi2(st,"/payment");
+        } else {
+            String pan = st.getOrDefault("F2","");
+            long amt = parseLongSafe(st.getOrDefault("F4","0"));
+            Account acc = ACCOUNTS.get(pan);
+            String rc = (acc==null)?"14"
+                      :(!"ACTIVE".equalsIgnoreCase(acc.getStatus()))? "62"
+                      :(acc.getBalance()<amt)? "51":"00";
+            if("00".equals(rc)) acc.setBalance(acc.getBalance()-amt);
+
+            resp = new HashMap<>(st);
+            resp.put("F39", rc);
+        }
+
+        logOutbound("NganLuong","/payment", st);
+        logInbound("NganLuong","/paymentResp", resp);
+        return resp;
+    }
+
+    // -----------------------------------------
+    private Map<String,String> sendToApi2(Map<String,String> st, String endpoint){
+        String url= API2_URL + endpoint;
+        System.out.println("[NganLuong] => Outbound to API2 " + endpoint + " => " + JsonMapperUtil.toJson(st));
+        String respJson = doHttpPost(url, JsonMapperUtil.toJson(st));
+        if(respJson==null){
+            Map<String,String> err=new HashMap<>(st);
+            err.put("F39","96");
+            return err;
+        }
+        return JsonMapperUtil.fromJson(respJson);
+    }
+
+    private String doHttpPost(String url, String body){
+        HttpURLConnection conn=null;
+        try {
+            URL u=new URL(url);
+            conn=(HttpURLConnection)u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+
+            OutputStream out=conn.getOutputStream();
+            out.write(body.getBytes("UTF-8"));
+            out.flush();
+            out.close();
+
+            ByteArrayOutputStream baos=new ByteArrayOutputStream();
+            InputStream in=conn.getInputStream();
+            byte[] buf=new byte[4096];
+            int len;
+            while((len=in.read(buf))!=-1){
+                baos.write(buf,0,len);
+            }
+            in.close();
+            return baos.toString("UTF-8");
+        }catch(Exception e){
+            e.printStackTrace();
+            return null;
+        }finally{
+            if(conn!=null) conn.disconnect();
+        }
+    }
+
+    // Chuẩn hoá
+    private Map<String,String> standardizeRequest(Map<String,String> req, String defPC){
+        Map<String,String> st = new HashMap<>(req);
+        if(!st.containsKey("F1")) st.put("F1","0200");
+        if(!st.containsKey("F2") && st.containsKey("sourcePan")){
+            st.put("F2", st.get("sourcePan"));
+        }
+        if(!st.containsKey("F3")) st.put("F3", defPC);
+
+        if(!st.containsKey("F4")){
+            st.put("F4","000000000000");
+        } else {
+            long amt = parseLongSafe(st.get("F4"));
+            st.put("F4", String.format("%012d", amt));
+        }
+        if(!st.containsKey("F11")){
+            st.put("F11", String.format("%06d",(int)(Math.random()*1_000_000)));
+        }
+        if(!st.containsKey("F12")){
+            st.put("F12", LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss")));
+        }
+        if(!st.containsKey("F13")){
+            st.put("F13", LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMdd")));
+        }
+        st.put("F32", BANK_CODE);
+        if(!st.containsKey("F100")) st.put("F100","");
+        if(!st.containsKey("F103") && st.containsKey("destPan")){
+            st.put("F103", st.get("destPan"));
+        }
+        return st;
+    }
+
+    private long parseLongSafe(String s){
+        try{return Long.parseLong(s);}catch(Exception e){return 0;}
+    }
+
+    private void logInbound(String svc,String path, Map<String,String> data){
+        System.out.println("\n=== ["+svc+"] Inbound "+path+" ===");
+        data.forEach((k,v)-> System.out.println(k+"="+v));
+        System.out.println("=========\n");
+    }
+    private void logOutbound(String svc,String path, Map<String,String> data){
+        System.out.println("\n=== ["+svc+"] Outbound "+path+" ===");
+        data.forEach((k,v)-> System.out.println(k+"="+v));
+        System.out.println("=========\n");
+    }
+
+    private static class Account {
+        private String pan;
+        private long balance;
+        private String status;
+        public Account(String p, long b, String s){
+            pan=p; balance=b; status=s;
+        }
+        public long getBalance(){return balance;}
+        public void setBalance(long x){balance=x;}
+        public String getStatus(){return status;}
+    }
+}

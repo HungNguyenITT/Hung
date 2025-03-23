@@ -1,0 +1,212 @@
+package ZaloPay.service;
+
+import org.springframework.stereotype.Service;
+import utils.JsonMapperUtil;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+public class ZaloPayService {
+    private static final String BANK_CODE = "970403";
+    // Địa chỉ API1 (cầu nối giữa ZaloPay và Napas)
+    private static final String API1_URL = "http://localhost:8081/api1";
+
+    // "Database" local của ZaloPay: dùng để kiểm tra tài khoản đích (dựa trên F103)
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("101010", new Account("101010", 5000000L, "ACTIVE"));
+        ACCOUNTS.put("999999", new Account("999999", 3000000L, "ACTIVE"));
+        ACCOUNTS.put("777777", new Account("777777", 1000000L, "LOCKED"));
+    }
+
+    // ===================== Inquiry =====================
+    public Map<String, String> processInquiry(Map<String, String> req) {
+        // Standardize request: bổ sung các trường nếu thiếu
+        Map<String, String> isoReq = standardizeRequest(req, "432020");
+        String f100 = isoReq.getOrDefault("F100", "");
+
+        if (!BANK_CODE.equals(f100)) {
+            // ZaloPay là bank gửi
+            printIsoMessage("ZaloPay", "=> Napas (Inquiry)", isoReq);
+            String respJson = doHttpPost(API1_URL + "/inquiry", JsonMapperUtil.toJson(isoReq));
+            if (respJson == null) return buildErrorResp(isoReq, "96");
+            Map<String, String> respMap = JsonMapperUtil.fromJson(respJson);
+            printIsoMessage("ZaloPay", "respond => bank=" + (respMap.get("F32") != null ? respMap.get("F32") : ""), respMap);
+            return respMap;
+        } else {
+            // ZaloPay là bank nhận
+            printIsoMessage("ZaloPay", "inbound request (Inquiry)", isoReq);
+            // Kiểm tra tài khoản đích theo F103
+            String destAcct = isoReq.getOrDefault("F103", "");
+            Account acc = ACCOUNTS.get(destAcct);
+            String rc;
+            if (acc == null) {
+                rc = "14"; // Tài khoản không tồn tại
+            } else if (!"ACTIVE".equalsIgnoreCase(acc.getStatus())) {
+                rc = "62"; // Tài khoản bị khóa
+            } else {
+                rc = "00";
+            }
+            // Build response: copy request, set MTI=0210 và F39
+            Map<String, String> resp = new HashMap<>(isoReq);
+            resp.put("F1", "0210");
+            resp.put("F39", rc);
+            printIsoMessage("ZaloPay", "respond => bank=" + BANK_CODE, resp);
+            return resp;
+        }
+    }
+
+    // ===================== Payment =====================
+    public Map<String, String> processPayment(Map<String, String> req) {
+        Map<String, String> isoReq = standardizeRequest(req, "912020");
+        String f100 = isoReq.getOrDefault("F100", "");
+
+        if (!BANK_CODE.equals(f100)) {
+            // Bank gửi
+            printIsoMessage("ZaloPay", "=> Napas (Payment)", isoReq);
+            String respJson = doHttpPost(API1_URL + "/payment", JsonMapperUtil.toJson(isoReq));
+            if (respJson == null) return buildErrorResp(isoReq, "96");
+            Map<String, String> respMap = JsonMapperUtil.fromJson(respJson);
+            printIsoMessage("ZaloPay", "respond => bank=" + (respMap.get("F32") != null ? respMap.get("F32") : ""), respMap);
+            return respMap;
+        } else {
+            // Bank nhận
+            printIsoMessage("ZaloPay", "inbound request (Payment)", isoReq);
+            String destAcct = isoReq.getOrDefault("F103", "");
+            Account acc = ACCOUNTS.get(destAcct);
+            String rc;
+            if (acc == null) {
+                rc = "14";
+            } else if (!"ACTIVE".equalsIgnoreCase(acc.getStatus())) {
+                rc = "62";
+            } else {
+                long amt = parseLongSafe(isoReq.getOrDefault("F4", "0"));
+                // Ví dụ: bank nhận Payment cộng tiền vào tài khoản
+                acc.setBalance(acc.getBalance() + amt);
+                rc = "00";
+            }
+            Map<String, String> resp = new HashMap<>(isoReq);
+            resp.put("F1", "0210");
+            resp.put("F39", rc);
+            printIsoMessage("ZaloPay", "respond => bank=" + BANK_CODE, resp);
+            return resp;
+        }
+    }
+
+    // -------------------- Utility Methods --------------------
+    private Map<String, String> standardizeRequest(Map<String, String> req, String defPC) {
+        Map<String, String> st = new HashMap<>(req);
+        if (!st.containsKey("F1")) st.put("F1", "0200");
+        if (!st.containsKey("F3")) st.put("F3", defPC);
+        if (!st.containsKey("F4")) {
+            st.put("F4", "000000000000");
+        } else {
+            long amt = parseLongSafe(st.get("F4"));
+            st.put("F4", String.format("%012d", amt));
+        }
+        if (!st.containsKey("F11"))
+            st.put("F11", String.format("%06d", (int) (Math.random() * 1000000)));
+        if (!st.containsKey("F12"))
+            st.put("F12", new SimpleDateFormat("HHmmss").format(new Date()));
+        if (!st.containsKey("F13"))
+            st.put("F13", new SimpleDateFormat("MMdd").format(new Date()));
+        // F32 là mã của bank gửi (ZaloPay)
+        st.put("F32", BANK_CODE);
+        if (!st.containsKey("F100")) st.put("F100", "");
+        if (!st.containsKey("F103") && st.containsKey("destPan"))
+            st.put("F103", st.get("destPan"));
+        return st;
+    }
+
+    private void printIsoMessage(String bankName, String desc, Map<String, String> isoData) {
+        String now = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
+        System.out.println("=== [" + bankName + "] " + desc + " ===");
+        // In MTI dưới dạng "MTI=..."
+        System.out.println("MTI=" + isoData.get("F1"));
+        // Lấy các trường khác (F2 .. F128), sắp xếp theo field id
+        List<Integer> fieldIds = new ArrayList<>();
+        for (String key : isoData.keySet()) {
+            if (key.startsWith("F") && !key.equals("F1")) {
+                try {
+                    fieldIds.add(Integer.parseInt(key.substring(1)));
+                } catch (Exception e) { }
+            }
+        }
+        Collections.sort(fieldIds);
+        for (int f : fieldIds) {
+            System.out.println("F" + f + "=" + isoData.get("F" + f));
+        }
+        System.out.println("==========");
+    }
+
+    private String doHttpPost(String url, String body) {
+        HttpURLConnection conn = null;
+        try {
+            URL u = new URL(url);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            try (OutputStream out = conn.getOutputStream()) {
+                out.write(body.getBytes("UTF-8"));
+            }
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (InputStream in = conn.getInputStream()) {
+                byte[] buf = new byte[4096];
+                int len;
+                while ((len = in.read(buf)) != -1) {
+                    baos.write(buf, 0, len);
+                }
+            }
+            return baos.toString("UTF-8");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private Map<String, String> buildErrorResp(Map<String, String> req, String rc) {
+        Map<String, String> err = new HashMap<>(req);
+        err.put("F1", "0210");
+        err.put("F39", rc);
+        return err;
+    }
+
+    private long parseLongSafe(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static class Account {
+        private String pan;
+        private long balance;
+        private String status;
+        public Account(String pan, long balance, String status) {
+            this.pan = pan;
+            this.balance = balance;
+            this.status = status;
+        }
+        public long getBalance() {
+            return balance;
+        }
+        public void setBalance(long x) {
+            balance = x;
+        }
+        public String getStatus() {
+            return status;
+        }
+    }
+}

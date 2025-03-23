@@ -1,0 +1,163 @@
+package Napas.server;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.ISOException;
+import org.jpos.iso.packager.ISO87APackager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import Napas.entity.NapasMessage;
+import Napas.repository.NapasMessageRepository;
+
+import javax.annotation.PostConstruct;
+import java.io.*;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Random;
+
+@Component
+public class SocketServer {
+
+    private static final int PORT = 9091; // cổng Napas
+    private static final Random RAND = new Random();
+
+    @Autowired
+    private NapasMessageRepository repo;
+
+    @PostConstruct
+    public void startServer(){
+        new Thread(() -> {
+            try(ServerSocket server=new ServerSocket(PORT)) {
+                System.out.println("[NAPAS] listening on port "+PORT);
+                while(true){
+                    Socket client=server.accept();
+                    new Thread(() -> handleClient(client)).start();
+                }
+            } catch(Exception e){
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void handleClient(Socket client){
+        try(InputStream in=client.getInputStream();
+            OutputStream out=client.getOutputStream()) {
+
+            byte[] buf=new byte[4096];
+            int len=in.read(buf);
+            if(len<=0) return;
+
+            byte[] reqBytes=new byte[len];
+            System.arraycopy(buf,0,reqBytes,0,len);
+
+            ISOMsg isoReq=new ISOMsg();
+            isoReq.setPackager(new ISO87APackager());
+            isoReq.unpack(reqBytes);
+
+            // Bổ sung: nếu thiếu field11,12,13 => generate
+            ensureField11(isoReq);
+            ensureField12_13(isoReq);
+
+            // Lưu request
+            NapasMessage reqEntity= createEntity("REQUEST", isoReq);
+            repo.save(reqEntity);
+
+            // forward => Bank nhận socket cổng 9091
+            ISOMsg isoResp= forwardToBankB(isoReq);
+
+            // Lưu response
+            NapasMessage respEntity=createEntity("RESPONSE", isoResp);
+            repo.save(respEntity);
+
+            // trả về bank phát
+            byte[] respBytes= isoResp.pack();
+            out.write(respBytes);
+            out.flush();
+
+        } catch(Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    private ISOMsg forwardToBankB(ISOMsg req) throws Exception {
+        try(Socket sock=new Socket("localhost",9091);
+            OutputStream out=sock.getOutputStream();
+            InputStream in=sock.getInputStream()) {
+
+            byte[] data=req.pack();
+            out.write(data);
+            out.flush();
+
+            byte[] buf=new byte[4096];
+            int len=in.read(buf);
+            if(len<=0) throw new IOException("[NAPAS] No response from Bank B");
+
+            byte[] resp=new byte[len];
+            System.arraycopy(buf,0,resp,0,len);
+
+            ISOMsg isoResp=new ISOMsg();
+            isoResp.setPackager(new ISO87APackager());
+            isoResp.unpack(resp);
+
+            // NOTE: bank B có thể echo 11,12,13 => or replace them
+            return isoResp;
+        }
+    }
+
+    /**
+     * Field 11 = 6 chữ số random, nếu chưa có
+     */
+    private void ensureField11(ISOMsg iso) throws ISOException {
+        if(!iso.hasField(11)) {
+            // random 6 digit
+            String f11 = random6Digits();
+            iso.set(11, f11);
+        }
+    }
+
+    /**
+     * Field 12 = HHmmss, Field 13 = MMdd, nếu chưa có
+     */
+    private void ensureField12_13(ISOMsg iso) throws ISOException {
+        LocalDateTime now = LocalDateTime.now();
+        DateTimeFormatter df12 = DateTimeFormatter.ofPattern("HHmmss");
+        DateTimeFormatter df13 = DateTimeFormatter.ofPattern("MMdd");
+
+        if(!iso.hasField(12)) {
+            iso.set(12, now.format(df12));
+        }
+        if(!iso.hasField(13)) {
+            iso.set(13, now.format(df13));
+        }
+    }
+
+    private String random6Digits(){
+        StringBuilder sb = new StringBuilder();
+        for(int i=0;i<6;i++){
+            int d = RAND.nextInt(10);
+            sb.append(d);
+        }
+        return sb.toString();
+    }
+
+    private NapasMessage createEntity(String type, ISOMsg iso) throws ISOException {
+        NapasMessage e=new NapasMessage();
+        e.setType(type);
+
+        e.setF1(iso.getMTI());
+        if(iso.hasField(2))  e.setF2(iso.getString(2));
+        if(iso.hasField(3))  e.setF3(iso.getString(3));
+        if(iso.hasField(4))  e.setF4(iso.getString(4));
+        if(iso.hasField(11)) e.setF11(iso.getString(11));
+        if(iso.hasField(12)) e.setF12(iso.getString(12));
+        if(iso.hasField(13)) e.setF13(iso.getString(13));
+        if(iso.hasField(39)) e.setF39(iso.getString(39));
+        if(iso.hasField(47)) e.setF47(iso.getString(47));
+        if(iso.hasField(48)) e.setF48(iso.getString(48));
+
+        return e;
+    }
+}
+

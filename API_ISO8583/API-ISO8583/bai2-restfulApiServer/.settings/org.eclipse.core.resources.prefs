@@ -1,0 +1,6 @@
+eclipse.preferences.version=1
+encoding//src/main/java/restapi/controller/ISO8583Controller.java=UTF-8
+encoding//src/main/java/restapi/controller/ISOUtil.java=UTF-8
+encoding//src/main/java/restapi/controller/NapasHttpJsonClient.java=UTF-8
+encoding//src/main/java/restapi/entity/RestApiMessage.java=UTF-8
+encoding//src/main/java/restapi/service/ISO8583Service.java=UTF-8

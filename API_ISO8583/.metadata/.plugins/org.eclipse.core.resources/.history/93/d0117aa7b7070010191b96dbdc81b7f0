@@ -1,0 +1,192 @@
+package NganLuong.service;
+
+import org.springframework.stereotype.Service;
+import utils.JsonMapperUtil;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+@Service
+public class NganLuongService {
+    private static final String BANK_CODE = "970404";
+    private static final String API2_URL  = "http://localhost:8085/api2";
+
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("101010", new Account("101010",9000000L,"ACTIVE"));
+        ACCOUNTS.put("121212", new Account("121212",2000000L,"ACTIVE"));
+        ACCOUNTS.put("131313", new Account("131313",5000000L,"LOCKED"));
+    }
+
+    // ========== Inquiry ==========
+    public Map<String,String> processInquiry(Map<String,String> req){
+        Map<String,String> isoReq= standardizeRequest(req,"432020");
+        String f100= isoReq.getOrDefault("F100","");
+
+        if(!BANK_CODE.equals(f100)){
+            // NganLuong => Napas => chờ
+            printIso("NganLuong","=> Napas (Inquiry)", isoReq);
+            String respJson= doHttpPost(API2_URL+"/inquiry", JsonMapperUtil.toJson(isoReq));
+            if(respJson==null){
+                System.out.println("[NganLuong] doHttpPost => no response => stop");
+                return Collections.emptyMap();
+            }
+            Map<String,String> respMap= JsonMapperUtil.fromJson(respJson);
+            printIso("NganLuong","(Inquiry) response from Napas?", respMap);
+            return respMap;
+        } else {
+            // bank nhận
+            printIso("NganLuong","inbound request (Inquiry)", isoReq);
+            String f103= isoReq.getOrDefault("F103","");
+            Account acc= ACCOUNTS.get(f103);
+            String rc;
+            if(acc==null) rc="14";
+            else if(!"ACTIVE".equalsIgnoreCase(acc.getStatus())) rc="62";
+            else rc="00";
+
+            Map<String,String> resp= new HashMap<>(isoReq);
+            resp.put("F1","0210");
+            resp.put("F39",rc);
+            printIso("NganLuong","respond => bank="+ BANK_CODE, resp);
+            return resp;
+        }
+    }
+
+    // ========== Payment ==========
+    public Map<String,String> processPayment(Map<String,String> req){
+        Map<String,String> isoReq= standardizeRequest(req,"912020");
+        String f100= isoReq.getOrDefault("F100","");
+
+        if(!BANK_CODE.equals(f100)){
+            // NganLuong => Napas
+            printIso("NganLuong","=> Napas (Payment)", isoReq);
+            String respJson= doHttpPost(API2_URL+"/payment", JsonMapperUtil.toJson(isoReq));
+            if(respJson==null){
+                System.out.println("[NganLuong] doHttpPost => no response => stop");
+                return Collections.emptyMap();
+            }
+            Map<String,String> respMap= JsonMapperUtil.fromJson(respJson);
+            printIso("NganLuong","(Payment) final response from Napas", respMap);
+            return respMap;
+        } else {
+            // bank nhận
+            printIso("NganLuong","inbound request (Payment)", isoReq);
+            String f103= isoReq.getOrDefault("F103","");
+            Account acc= ACCOUNTS.get(f103);
+            String rc;
+            if(acc==null) rc="14";
+            else if(!"ACTIVE".equalsIgnoreCase(acc.getStatus())) rc="62";
+            else {
+                long amt= parseLongSafe(isoReq.get("F4"));
+                acc.setBalance(acc.getBalance()+amt);
+                rc="00";
+            }
+            Map<String,String> resp= new HashMap<>(isoReq);
+            resp.put("F1","0210");
+            resp.put("F39", rc);
+            printIso("NganLuong","response ", resp);
+            return resp;
+        }
+    }
+
+    // ========== Utility ==========
+    private Map<String,String> standardizeRequest(Map<String,String> j, String defPC){
+        Map<String,String> isoReq= new HashMap<>(j);
+        if(!isoReq.containsKey("F1")) isoReq.put("F1","0200");
+        if(!isoReq.containsKey("F3")) isoReq.put("F3",defPC);
+        if(!isoReq.containsKey("F4")){
+            isoReq.put("F4","000000000000");
+        } else {
+            long amt= parseLongSafe(isoReq.get("F4"));
+            isoReq.put("F4", String.format("%012d",amt));
+        }
+        if(!isoReq.containsKey("F11")){
+            isoReq.put("F11", String.format("%06d",(int)(Math.random()*1_000_000)));
+        }
+        if(!isoReq.containsKey("F12")){
+            isoReq.put("F12", new SimpleDateFormat("HHmmss").format(new Date()));
+        }
+        if(!isoReq.containsKey("F13")){
+            isoReq.put("F13", new SimpleDateFormat("MMdd").format(new Date()));
+        }
+        isoReq.put("F32", BANK_CODE);
+        if(!isoReq.containsKey("F100")) isoReq.put("F100","");
+
+        if(!isoReq.containsKey("F103") && isoReq.containsKey("destPan")){
+            isoReq.put("F103", isoReq.get("destPan"));
+        }
+        return isoReq;
+    }
+
+    private void printIso(String bankName, String desc, Map<String,String> iso){
+        System.out.println("=== ["+bankName+"] "+ desc +" ===");
+        System.out.println("MTI="+ iso.getOrDefault("F1","0200"));
+        List<Integer> fields= new ArrayList<>();
+        for(String k: iso.keySet()){
+            if(k.startsWith("F") && !k.equals("F1")){
+                try{ fields.add(Integer.parseInt(k.substring(1))); }catch(Exception ignore){}
+            }
+        }
+        Collections.sort(fields);
+        for(int f: fields){
+            System.out.println("F"+f+"="+ iso.get("F"+f));
+        }
+        System.out.println("==========");
+    }
+
+    private String doHttpPost(String url, String body){
+        HttpURLConnection conn=null;
+        try {
+            URL u=new URL(url);
+            conn=(HttpURLConnection)u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+            // Tăng timeout => 20 giây
+            conn.setConnectTimeout(20000);
+            conn.setReadTimeout(20000);
+
+            try(OutputStream out=conn.getOutputStream()){
+                out.write(body.getBytes("UTF-8"));
+            }
+            ByteArrayOutputStream baos=new ByteArrayOutputStream();
+            try(InputStream in=conn.getInputStream()){
+                byte[] buf=new byte[4096];
+                int len;
+                while((len=in.read(buf))!=-1){
+                    baos.write(buf,0,len);
+                }
+            }
+            return baos.toString("UTF-8");
+        }catch(Exception e){
+            e.printStackTrace();
+            return null;
+        }finally {
+            if(conn!=null) conn.disconnect();
+        }
+    }
+
+    private Map<String,String> buildErrorResp(Map<String,String> j, String rc){
+        Map<String,String> e= new HashMap<>(j);
+        e.put("F1","0210");
+        e.put("F39",rc);
+        return e;
+    }
+
+    private long parseLongSafe(String s){
+        try{return Long.parseLong(s);}catch(Exception e){return 0;}
+    }
+
+    private static class Account {
+        String pan; long balance; String status;
+        public Account(String p,long b,String s){
+            pan=p; balance=b; status=s;
+        }
+        public long getBalance(){return balance;}
+        public void setBalance(long x){balance=x;}
+        public String getStatus(){return status;}
+    }
+}

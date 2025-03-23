@@ -1,0 +1,25 @@
+[2025-03-19 23:14:07.094] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="904894"/>
+  <field id="12" value="231406"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+  <field id="100" value="970404"/>
+</isomsg>
+
+[2025-03-21 16:25:23.239] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="999999"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="516017"/>
+  <field id="12" value="162523"/>
+  <field id="13" value="0321"/>
+  <field id="32" value="970403"/>
+  <field id="100" value="970404"/>
+  <field id="103" value="101010"/>
+</isomsg>
+

@@ -1,0 +1,188 @@
+package ZaloPay.service;
+
+
+import org.springframework.stereotype.Service;
+import utils.JsonMapperUtil;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+@Service
+public class ZaloPayService {
+
+    private static final String BANK_CODE = "970403";
+    // Địa chỉ API1 (trung gian chuyển đổi) mà ZaloPay gọi đến
+    private static final String API1_URL = "http://localhost:8081/api1";
+
+    // Danh sách tài khoản mẫu (giống VCB)
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("888888", new Account("888888", 3000000L, "ACTIVE"));
+        ACCOUNTS.put("999999", new Account("999999", 5000000L, "ACTIVE"));
+        ACCOUNTS.put("777777", new Account("777777", 1000000L, "LOCKED"));
+    }
+    
+    public Map<String, String> processInquiry(Map<String, String> req) {
+        logInbound("ZaloPay", "/inquiry", req);
+        String f100 = req.get("f100");
+        if (f100 == null || !BANK_CODE.equals(f100)) {
+            System.out.println("[ZaloPay] Warning: Bản tin đến từ bank khác: f100=" + f100);
+        }
+        String destPan = req.get("destPan");
+        String rc;
+        Account account = ACCOUNTS.get(destPan);
+        if (account == null) {
+            rc = "14";
+        } else if (!"ACTIVE".equalsIgnoreCase(account.getStatus())) {
+            rc = "62";
+        } else {
+            rc = "00";
+        }
+        Map<String, String> resp = new HashMap<>();
+        copyField(req, resp, "sourcePan", "F2");
+        copyField(req, resp, "processingCode", "F3");
+        copyField(req, resp, "amount", "F4");
+        resp.put("F32", BANK_CODE);
+        copyField(req, resp, "f100", "F100");
+        copyField(req, resp, "destPan", "F103");
+        resp.put("F11", generateF11());
+        resp.put("F12", generateF12());
+        resp.put("F13", generateF13());
+        resp.put("mti", "0210");
+        resp.put("F39", rc);
+        logOutbound("ZaloPay", "/inquiry", resp);
+        return resp;
+    }
+
+    public Map<String, String> processPayment(Map<String, String> req) {
+        logInbound("ZaloPay", "/payment", req);
+        String f100 = req.get("f100");
+        if (f100 == null || !BANK_CODE.equals(f100)) {
+            System.out.println("[ZaloPay] Warning: Bản tin đến từ bank khác: f100=" + f100);
+        }
+        Map<String, String> resp = new HashMap<>();
+        copyField(req, resp, "sourcePan", "F2");
+        copyField(req, resp, "processingCode", "F3");
+        copyField(req, resp, "amount", "F4");
+        resp.put("F32", BANK_CODE);
+        copyField(req, resp, "f100", "F100");
+        copyField(req, resp, "destPan", "F103");
+        resp.put("F11", generateF11());
+        resp.put("F12", generateF12());
+        resp.put("F13", generateF13());
+        resp.put("mti", "0210");
+        
+        String destPan = req.get("destPan");
+        long amt = 0;
+        try {
+            amt = Long.parseLong(req.get("amount"));
+        } catch(Exception e) { }
+        String rc;
+        Account account = ACCOUNTS.get(destPan);
+        if (account == null) {
+            rc = "14";
+        } else if (!"ACTIVE".equalsIgnoreCase(account.getStatus())) {
+            rc = "62";
+        } else {
+            account.setBalance(account.getBalance() + amt);
+            rc = "00";
+        }
+        resp.put("F39", rc);
+        logOutbound("ZaloPay", "/payment", resp);
+        return resp;
+    }
+    
+    // Phương thức gửi JSON sang API1 dùng HttpURLConnection
+    public Map<String, String> sendToApi1(Map<String, String> jsonMap, String endpoint) {
+        String url = API1_URL + endpoint;
+        System.out.println("=== [ZaloPay] OUTBOUND to API1 " + endpoint + " JSON ===");
+        System.out.println(JsonMapperUtil.toJson(jsonMap));
+        String responseJson = doHttpPost(url, JsonMapperUtil.toJson(jsonMap));
+        System.out.println("=== [ZaloPay] INBOUND from API1 JSON ===");
+        System.out.println(responseJson);
+        return JsonMapperUtil.fromJson(responseJson);
+    }
+    
+    private String doHttpPost(String url, String body) {
+        HttpURLConnection conn = null;
+        try {
+            URL u = new URL(url);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.connect();
+            OutputStream out = conn.getOutputStream();
+            out.write(body.getBytes("UTF-8"));
+            out.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            InputStream in = conn.getInputStream();
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) != -1) {
+                baos.write(buf, 0, len);
+            }
+            in.close();
+            return baos.toString("UTF-8");
+        } catch(Exception e) {
+            e.printStackTrace();
+        } finally {
+            if(conn != null) conn.disconnect();
+        }
+        return null;
+    }
+    
+    private void copyField(Map<String, String> src, Map<String, String> dest, String srcKey, String destKey) {
+        if(src.containsKey(srcKey)){
+            dest.put(destKey, src.get(srcKey));
+        }
+    }
+    
+    private String generateF11() {
+        return String.format("%06d", new Random().nextInt(999999));
+    }
+    
+    private String generateF12() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
+    }
+    
+    private String generateF13() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMdd"));
+    }
+    
+    private void logInbound(String bank, String endpoint, Map<String, String> data) {
+        System.out.println("=== [" + bank + "] INBOUND " + endpoint + " JSON ===");
+        data.forEach((k,v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+    
+    private void logOutbound(String bank, String endpoint, Map<String, String> data) {
+        System.out.println("=== [" + bank + "] OUTBOUND " + endpoint + " JSON ===");
+        data.forEach((k,v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+    
+    private static class Account {
+        private String pan;
+        private long balance;
+        private String status;
+        public Account(String pan, long balance, String status) {
+            this.pan = pan;
+            this.balance = balance;
+            this.status = status;
+        }
+        public String getPan() { return pan; }
+        public long getBalance() { return balance; }
+        public void setBalance(long balance) { this.balance = balance; }
+        public String getStatus() { return status; }
+    }
+}
+

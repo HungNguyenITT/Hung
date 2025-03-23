@@ -1,0 +1,179 @@
+package ZaloPay.service;
+
+import org.springframework.stereotype.Service;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import utils.JsonMapperUtil;
+
+@Service
+public class ZaloPayService {
+    private static final String BANK_CODE = "970403";
+    // Chỉ khai báo 1 URL duy nhất cho ZaloPay (API1)
+    private static final String API1_URL = "http://localhost:8081/api1";
+
+    private static final Map<String, Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("888888", new Account("888888", 3000000L, "ACTIVE"));
+        ACCOUNTS.put("999999", new Account("999999", 5000000L, "ACTIVE"));
+        ACCOUNTS.put("777777", new Account("777777", 1000000L, "LOCKED"));
+    }
+
+    public Map<String, String> processInquiry(Map<String, String> req) {
+        logInbound("ZaloPay", "/inquiry", req);
+        Map<String, String> isoReq = prepareISORequest(req, "432020", BANK_CODE);
+        Map<String, String> response;
+        if (!BANK_CODE.equals(isoReq.get("F100"))) {
+            System.out.println("[ZaloPay] Warning: Bản tin đến từ bank khác: F100=" + isoReq.get("F100"));
+            response = sendToApi1(isoReq, "/inquiry");
+        } else {
+            String pan = isoReq.get("F2");
+            Account account = ACCOUNTS.get(pan);
+            String rc = (account == null || !"ACTIVE".equalsIgnoreCase(account.getStatus())) ? "14" : "00";
+            response = new HashMap<>(isoReq);
+            response.put("F39", rc);
+        }
+        logOutbound("ZaloPay", "/inquiry", isoReq);
+        logInbound("ZaloPay", "/inquiryResp", response);
+        return response;
+    }
+
+    public Map<String, String> processPayment(Map<String, String> req) {
+        logInbound("ZaloPay", "/payment", req);
+        Map<String, String> isoReq = prepareISORequest(req, "912020", BANK_CODE);
+        Map<String, String> response;
+        if (!BANK_CODE.equals(isoReq.get("F100"))) {
+            System.out.println("[ZaloPay] Warning: Bản tin đến từ bank khác: F100=" + isoReq.get("F100"));
+            response = sendToApi1(isoReq, "/payment");
+        } else {
+            String pan = isoReq.get("F2");
+            long amt = Long.parseLong(isoReq.getOrDefault("F4", "0"));
+            Account account = ACCOUNTS.get(pan);
+            String rc = (account == null) ? "14" :
+                        (!"ACTIVE".equalsIgnoreCase(account.getStatus())) ? "62" :
+                        (account.getBalance() < amt) ? "51" : "00";
+            if ("00".equals(rc)) account.setBalance(account.getBalance() - amt);
+            response = new HashMap<>(isoReq);
+            response.put("F39", rc);
+        }
+        logOutbound("ZaloPay", "/payment", isoReq);
+        logInbound("ZaloPay", "/paymentResp", response);
+        return response;
+    }
+
+    // Hàm chuẩn hóa JSON request thành map ISO với các trường bắt buộc
+    private Map<String, String> prepareISORequest(Map<String, String> req, String defaultPC, String fixedF32) {
+        Map<String, String> isoReq = new HashMap<>();
+        for (Map.Entry<String, String> entry : req.entrySet()) {
+            isoReq.put(entry.getKey().toUpperCase(), entry.getValue());
+        }
+        if (!isoReq.containsKey("F1")) {
+            isoReq.put("F1", "0200");
+        }
+        if (!isoReq.containsKey("F2")) {
+            isoReq.put("F2", "");
+        }
+        if (!isoReq.containsKey("F3")) {
+            isoReq.put("F3", defaultPC);
+        }
+        if (!isoReq.containsKey("F4")) {
+            isoReq.put("F4", "000000000000");
+        } else {
+            try {
+                long amt = Long.parseLong(isoReq.get("F4"));
+                isoReq.put("F4", String.format("%012d", amt));
+            } catch(Exception e) {
+                isoReq.put("F4", "000000000000");
+            }
+        }
+        isoReq.put("F32", fixedF32);
+        if (!isoReq.containsKey("F100")) {
+            isoReq.put("F100", "");
+        }
+        if (!isoReq.containsKey("F103") && req.containsKey("F103")) {
+            isoReq.put("F103", req.get("F103").toUpperCase());
+        }
+        if (!isoReq.containsKey("F11")) {
+            isoReq.put("F11", String.format("%06d", (int)(Math.random()*1000000)));
+        }
+        if (!isoReq.containsKey("F12")) {
+            isoReq.put("F12", LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss")));
+        }
+        if (!isoReq.containsKey("F13")) {
+            isoReq.put("F13", LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMdd")));
+        }
+        return isoReq;
+    }
+
+    public Map<String, String> sendToApi1(Map<String, String> jsonMap, String endpoint) {
+        String url = API1_URL + endpoint;
+        System.out.println("=== [ZaloPay] Outbound to API1 " + endpoint + " ===");
+        System.out.println(JsonMapperUtil.toJson(jsonMap));
+        String responseJson = doHttpPost(url, JsonMapperUtil.toJson(jsonMap));
+        if (responseJson == null) {
+            System.out.println("[ZaloPay] Error: No response from API1");
+            Map<String, String> errorResp = new HashMap<>(jsonMap);
+            errorResp.put("F39", "96");
+            return errorResp;
+        }
+        Map<String, String> response = JsonMapperUtil.fromJson(responseJson);
+        return response;
+    }
+
+    private String doHttpPost(String url, String body) {
+        HttpURLConnection conn = null;
+        try {
+            URL u = new URL(url);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            OutputStream out = conn.getOutputStream();
+            out.write(body.getBytes("UTF-8"));
+            out.close();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            InputStream in = conn.getInputStream();
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) != -1) baos.write(buf, 0, len);
+            in.close();
+            return baos.toString("UTF-8");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private void logInbound(String service, String path, Map<String, String> data) {
+        System.out.println("=== [" + service + "] Inbound " + path + " ===");
+        data.forEach((k, v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+
+    private void logOutbound(String service, String path, Map<String, String> data) {
+        System.out.println("=== [" + service + "] Outbound " + path + " ===");
+        data.forEach((k, v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+
+    private static final String API1_URL = "http://localhost:8081/api1"; // Đã khai báo duy nhất ở đầu file
+
+    private static class Account {
+        private String pan;
+        private long balance;
+        private String status;
+        public Account(String pan, long balance, String status) {
+            this.pan = pan;
+            this.balance = balance;
+            this.status = status;
+        }
+        public String getPan() { return pan; }
+        public long getBalance() { return balance; }
+        public void setBalance(long balance) { this.balance = balance; }
+        public String getStatus() { return status; }
+    }
+}

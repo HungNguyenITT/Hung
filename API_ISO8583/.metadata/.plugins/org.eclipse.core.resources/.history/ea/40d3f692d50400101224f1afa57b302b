@@ -1,0 +1,59 @@
+package API1.service;
+
+package API1.connection;
+
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+import utils.IsoSocketUtils;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class NapasConnectionManager {
+    private final String host;
+    private final int port;
+    private Socket socket;
+    private InputStream in;
+    private OutputStream out;
+    private final GenericPackager packager;
+    private final ReentrantLock lock = new ReentrantLock();
+
+    public NapasConnectionManager(String host, int port, GenericPackager packager) throws Exception {
+        this.host = host;
+        this.port = port;
+        this.packager = packager;
+        connect();
+    }
+
+    private void connect() throws Exception {
+        socket = new Socket(host, port);
+        // Sử dụng timeout dài hơn nếu cần
+        socket.setSoTimeout(15000);
+        in = socket.getInputStream();
+        out = socket.getOutputStream();
+        System.out.println("[NapasConnectionManager] Connected to Napas at " + host + ":" + port);
+    }
+
+    // Gửi và nhận ISO message trên cùng một kết nối, bảo vệ bởi lock
+    public ISOMsg sendAndReceive(ISOMsg isoMsg) throws Exception {
+        lock.lock();
+        try {
+            // Gửi message
+            IsoSocketUtils.sendIsoMessageWithHeader(out, isoMsg);
+            // Đọc response
+            return IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void close() throws Exception {
+        if (socket != null && !socket.isClosed()) {
+            socket.close();
+        }
+    }
+}
+

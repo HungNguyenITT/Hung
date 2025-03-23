@@ -1,0 +1,125 @@
+[2025-03-18 23:16:10.526] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="040620"/>
+  <field id="12" value="231610"/>
+  <field id="13" value="0318"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 19:55:58.808] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="596770"/>
+  <field id="12" value="195558"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 20:12:16.015] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="076428"/>
+  <field id="12" value="201215"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 20:47:02.196] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="042578"/>
+  <field id="12" value="204701"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 21:03:41.138] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="870339"/>
+  <field id="12" value="210340"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 21:20:46.840] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="929314"/>
+  <field id="12" value="212046"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 21:40:57.980] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="765207"/>
+  <field id="12" value="214057"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 21:52:31.126] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="225240"/>
+  <field id="12" value="215230"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 22:01:28.559] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="309696"/>
+  <field id="12" value="220128"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 22:22:17.829] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="788881"/>
+  <field id="12" value="222217"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+</isomsg>
+
+[2025-03-19 23:14:07.094] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="904894"/>
+  <field id="12" value="231406"/>
+  <field id="13" value="0319"/>
+  <field id="32" value="970403"/>
+  <field id="100" value="970404"/>
+</isomsg>
+
+[2025-03-21 16:25:23.239] (OUT)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="999999"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="516017"/>
+  <field id="12" value="162523"/>
+  <field id="13" value="0321"/>
+  <field id="32" value="970403"/>
+  <field id="100" value="970404"/>
+  <field id="103" value="101010"/>
+</isomsg>
+

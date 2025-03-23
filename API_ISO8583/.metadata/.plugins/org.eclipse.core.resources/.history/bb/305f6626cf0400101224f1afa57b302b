@@ -1,0 +1,43 @@
+package utils;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+public class IsoSocketUtils {
+
+    public static void sendIsoMessageWithHeader(OutputStream out, ISOMsg isoMsg) throws Exception {
+        byte[] isoData = isoMsg.pack();
+        int length = isoData.length;
+        
+        // Ghi 4 byte header (độ dài message) dưới dạng big-endian
+        DataOutputStream dos = new DataOutputStream(out);
+        dos.writeInt(length); // Ghi 4 byte độ dài
+        dos.write(isoData);   // Ghi dữ liệu ISO message
+        dos.flush();
+
+        System.out.println("[IsoSocketUtils] Sent message with header. Length: " + length + ", Raw data length: " + isoData.length);
+        System.out.println("[IsoSocketUtils] Raw data sent (hex): " + bytesToHex(isoData));
+    }
+
+    public static ISOMsg readIsoMessageWithHeader(InputStream in, ISOBasePackager packager) throws Exception {
+        // Đọc dữ liệu từ InputStream (phần này giữ nguyên logic cũ của bạn)
+        byte[] isoData = // logic để đọc dữ liệu ISO với header
+        ISOMsg response = new ISOMsg();
+        response.setPackager(packager);
+        response.unpack(isoData);
+        return response;
+    }
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+}

@@ -1,0 +1,9 @@
+
+    <!ELEMENT isopackager (isofield*)>
+    <!ELEMENT isofield EMPTY>
+    <!ATTLIST isofield
+        id CDATA #REQUIRED
+        length CDATA #REQUIRED
+        name CDATA #IMPLIED
+        class CDATA #REQUIRED
+    >

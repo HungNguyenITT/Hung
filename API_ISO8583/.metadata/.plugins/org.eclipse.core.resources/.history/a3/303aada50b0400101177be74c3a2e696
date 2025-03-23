@@ -1,0 +1,37 @@
+package API2.service;
+
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.ISOException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import API2.controller.Api2JsonIsoConverter;
+import API2.socket.API2Socket;
+
+import java.io.IOException;
+import java.util.Map;
+
+@Service
+public class Api2Service {
+
+    @Autowired
+    private API2Socket api2Socket;
+
+    public ISOMsg handleInquiry(Map<String, String> json) throws ISOException, IOException {
+        ISOMsg req = Api2JsonIsoConverter.buildIsoForInquiry(json);
+        ISOMsg resp = api2Socket.sendAndWaitResponse(req, 15000);
+        return resp;
+    }
+
+    public ISOMsg handlePayment(Map<String, String> json) throws ISOException, IOException {
+        ISOMsg req = Api2JsonIsoConverter.buildIsoForPayment(json);
+        ISOMsg resp = api2Socket.sendAndWaitResponse(req, 15000);
+        return resp;
+    }
+
+    public Map<String, String> convertIsoToJson(ISOMsg iso) throws ISOException {
+        return Api2JsonIsoConverter.parseIsoToJson(iso);
+    }
+}
+

@@ -1,0 +1,58 @@
+[2025-02-20 22:04:30.731] (VCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="101010"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="398874"/>
+  <field id="12" value="220430"/>
+  <field id="13" value="0220"/>
+  <field id="32" value="970404"/>
+  <field id="47" value="222222"/>
+  <field id="100" value="970401"/>
+</isomsg>
+
+[2025-02-20 22:04:30.731] (VCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="101010"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="398874"/>
+  <field id="12" value="220430"/>
+  <field id="13" value="0220"/>
+  <field id="32" value="970404"/>
+  <field id="39" value="00"/>
+  <field id="47" value="222222"/>
+  <field id="100" value="970401"/>
+</isomsg>
+
+[2025-02-26 21:54:38.411] (VCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="101010"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="457337"/>
+  <field id="12" value="215438"/>
+  <field id="13" value="0226"/>
+  <field id="32" value="970404"/>
+  <field id="47" value="111111"/>
+  <field id="100" value="970401"/>
+</isomsg>
+
+[2025-02-26 21:54:38.417] (VCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="101010"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="457337"/>
+  <field id="12" value="215438"/>
+  <field id="13" value="0226"/>
+  <field id="32" value="970404"/>
+  <field id="39" value="00"/>
+  <field id="47" value="111111"/>
+  <field id="100" value="970401"/>
+</isomsg>
+

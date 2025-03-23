@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring accessors="true" comment="Delete element from project &apos;socketSever-bai2&apos;&#x0D;&#x0A;- Original project: &apos;socketSever-bai2&apos;&#x0D;&#x0A;- Original element: &apos;socketSever-bai2/src/test/java/org.socketSever.bai2&apos;" description="Delete element" element1="/src\/test\/java&lt;org.socketSever.bai2" element2="/src\/test\/java&lt;org.socketSever" element3="/src\/test\/java&lt;org" elements="3" flags="589830" id="org.eclipse.jdt.ui.delete" resources="0" stamp="1735286214173" subPackages="false" version="1.0"/>
+</session>

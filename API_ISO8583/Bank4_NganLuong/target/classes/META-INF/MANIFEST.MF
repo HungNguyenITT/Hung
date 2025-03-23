@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Implementation-Title: Bank4_NganLuong
+Implementation-Version: 1.0
+Built-By: Acer
+Implementation-Vendor-Id: com.ndhung
+Build-Jdk: 1.8.0_411
+Implementation-URL: https://projects.spring.io/spring-boot/#/spring-bo
+ ot-starter-parent/Bank4_NganLuong
+Created-By: Maven Integration for Eclipse
+

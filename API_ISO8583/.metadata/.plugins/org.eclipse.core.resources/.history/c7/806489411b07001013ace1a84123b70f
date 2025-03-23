@@ -1,0 +1,90 @@
+package NganLuong.CLI;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+import NganLuong.service.NganLuongService;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+
+@Component
+public class NganLuongCLI implements CommandLineRunner {
+
+    private final NganLuongService nganLuongService;
+    private String receivingBankF100 = null;
+
+    public NganLuongCLI(NganLuongService nganLuongService) {
+        this.nganLuongService = nganLuongService;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            System.out.println("\n===== [NganLuong CLI] =====");
+            System.out.println("1. Set receiving bank (F100)");
+            System.out.println("2. Inquiry");
+            System.out.println("3. Payment");
+            System.out.println("0. Exit CLI");
+            System.out.print("Chọn: ");
+            String choice = scanner.nextLine().trim();
+            if ("0".equals(choice)) break;
+
+            if ("1".equals(choice)) {
+                System.out.println("Chọn ngân hàng nhận:");
+                System.out.println("1 = VCB (970401), 2 = TCB (970402), 3 = ZaloPay (970403)");
+                String bankChoice = scanner.nextLine().trim();
+                if ("1".equals(bankChoice)) receivingBankF100 = "970401";
+                else if ("2".equals(bankChoice)) receivingBankF100 = "970402";
+                else if ("3".equals(bankChoice)) receivingBankF100 = "970403";
+                else {
+                    System.out.println("Lựa chọn không hợp lệ.");
+                    continue;
+                }
+                System.out.println("[NganLuong CLI] => Đã set F100 = " + receivingBankF100);
+            }
+            else if ("2".equals(choice)) { // Inquiry
+                if (receivingBankF100 == null) {
+                    System.out.println("[NganLuong CLI] F100 chưa được thiết lập!");
+                    continue;
+                }
+                System.out.print("srcPan (F2): ");
+                String srcPan = scanner.nextLine().trim();
+                System.out.print("destPan (F103): ");
+                String destPan = scanner.nextLine().trim();
+
+                Map<String, String> req = new HashMap<>();
+                req.put("F2", srcPan);
+                req.put("F103", destPan);
+                req.put("F100", receivingBankF100);
+
+                Map<String, String> resp = nganLuongService.processInquiry(req);
+                System.out.println("Response: " + resp);
+            }
+            else if ("3".equals(choice)) { // Payment
+                if (receivingBankF100 == null) {
+                    System.out.println("[NganLuong CLI] F100 chưa được thiết lập!");
+                    continue;
+                }
+                System.out.print("srcPan (F2): ");
+                String srcPan = scanner.nextLine().trim();
+                System.out.print("destPan (F103): ");
+                String destPan = scanner.nextLine().trim();
+                System.out.print("amount (F4): ");
+                String amount = scanner.nextLine().trim();
+
+                Map<String, String> req = new HashMap<>();
+                req.put("F2", srcPan);
+                req.put("F103", destPan);
+                req.put("F4", amount);
+                req.put("F100", receivingBankF100);
+
+                Map<String, String> resp = nganLuongService.processPayment(req);
+                System.out.println("Response: " + resp);
+            }
+            else {
+                System.out.println("Lựa chọn không hợp lệ.");
+            }
+        }
+    }
+}

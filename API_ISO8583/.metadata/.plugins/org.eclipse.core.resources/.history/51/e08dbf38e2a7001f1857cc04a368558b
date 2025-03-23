@@ -1,0 +1,6 @@
+package API.ISO8583.JAVA.config;
+
+public class CommonConfig {
+
+    public static final int SOCKET_TIMEOUT = 30000; // Timeout 30 giây
+}

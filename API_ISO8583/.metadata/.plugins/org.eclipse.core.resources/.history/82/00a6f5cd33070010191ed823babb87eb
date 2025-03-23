@@ -1,0 +1,293 @@
+package BankTCB;
+
+import org.jpos.iso.*;
+import org.jpos.iso.packager.ISO87APackager;
+import utils.IsoDebugHelper;
+import utils.IsoSocketUtils;
+
+import java.io.*;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.*;
+
+public class TcbSocket {
+    private static final Map<String,Account> ACCOUNTS = new HashMap<>();
+    static {
+        ACCOUNTS.put("444444", new Account("444444",2000000L,"ACTIVE"));
+        ACCOUNTS.put("555555", new Account("555555",1000000L,"ACTIVE"));
+        ACCOUNTS.put("666666", new Account("666666",5000000L,"LOCKED"));
+    }
+
+    // TCB=970402 => Napas cổng=1313
+    private static final String NAPAS_HOST="localhost";
+    private static final int NAPAS_PORT=1313;
+
+    private static final String F32_THIS_BANK="970402";
+
+    private static Socket socket;
+    private static OutputStream out;
+    private static InputStream in;
+
+    private static final Map<String, CompletableFuture<ISOMsg>> pendingRequests = new HashMap<>();
+
+    public static void main(String[] args) {
+        connectNapas();
+        runCLI();
+    }
+
+    private static void connectNapas() {
+        while(true) {
+            try {
+                socket = new Socket(NAPAS_HOST, NAPAS_PORT);
+                socket.setSoTimeout(0);
+                out = socket.getOutputStream();
+                in  = socket.getInputStream();
+                System.out.println("[TCB] connected Napas " + socket.getRemoteSocketAddress());
+
+                new Thread(TcbSocket::readLoop).start();
+                break;
+            } catch(Exception e) {
+                System.err.println("[TCB] connect Napas fail => retry 5s...");
+                try{Thread.sleep(5000);}catch(Exception ignore){}
+            }
+        }
+    }
+
+    private static void readLoop() {
+        ISO87APackager packager = new ISO87APackager();
+        while(true) {
+            try {
+                ISOMsg iso = IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+                if(iso==null) {
+                    System.out.println("[TCB] read null => disconnect?");
+                    break;
+                }
+                IsoDebugHelper.debugIso("[TCB] Inbound", iso);
+
+                String stan = iso.hasField(11)? iso.getString(11):null;
+                if(stan!=null && pendingRequests.containsKey(stan)) {
+                    CompletableFuture<ISOMsg> cf = pendingRequests.remove(stan);
+                    if(cf!=null) cf.complete(iso);
+                } else {
+                    processInbound(iso);
+                }
+
+            } catch(SocketTimeoutException te) {
+                continue;
+            } catch(Exception e) {
+                e.printStackTrace();
+                break;
+            }
+        }
+        System.out.println("[TCB] readLoop ended => close socket => reconnect?");
+        try{socket.close();}catch(Exception ignore){}
+        connectNapas();
+    }
+
+    private static void processInbound(ISOMsg iso) throws ISOException, IOException {
+        String pc = iso.hasField(3)? iso.getString(3): "";
+        String destPan = iso.hasField(103)? iso.getString(103): "";
+        long amt=0;
+        if(iso.hasField(4)) {
+            String s= iso.getString(4).replaceAll("^0+","");
+            if(!s.isEmpty()) amt=Long.parseLong(s);
+        }
+        String rc="96";
+
+        if("432020".equals(pc)) {
+            Account a= ACCOUNTS.get(destPan);
+            if(a==null) rc="14";
+            else if(!"ACTIVE".equalsIgnoreCase(a.status)) rc="62";
+            else rc="00";
+        } else if("912020".equals(pc)) {
+            Account a= ACCOUNTS.get(destPan);
+            if(a==null) rc="14";
+            else if(!"ACTIVE".equalsIgnoreCase(a.status)) rc="62";
+            else {
+                a.balance += amt;
+                rc="00";
+            }
+        }
+        ISOMsg resp=new ISOMsg();
+        resp.setPackager(new ISO87APackager());
+        int mti=Integer.parseInt(iso.getMTI());
+        resp.setMTI(String.format("%04d", mti+10));
+        copyIfPresent(iso, resp, 2);
+        copyIfPresent(iso, resp, 3);
+        copyIfPresent(iso, resp, 4);
+        copyIfPresent(iso, resp, 11);
+        copyIfPresent(iso, resp, 12);
+        copyIfPresent(iso, resp, 13);
+        copyIfPresent(iso, resp, 32);
+        copyIfPresent(iso, resp, 100);
+        copyIfPresent(iso, resp, 103);
+        resp.set(39, rc);
+
+        IsoDebugHelper.debugIso("[TCB] inboundResp => Napas", resp);
+        IsoSocketUtils.sendIsoMessageWithHeader(out, resp);
+    }
+
+    private static void runCLI() {
+        Scanner sc=new Scanner(System.in);
+        String receivingBankF100=null;
+        while(true) {
+            System.out.println("[TCB CLI] 1.Set bank 2.Inquiry 3.Payment 0.Exit");
+            String c=sc.nextLine().trim();
+            if("0".equals(c)) break;
+            switch(c) {
+                case "1":
+                    // Sửa lại logic mapping
+                    System.out.println("1=VCB(970401), 2=TCB(970402), 3=Zalo(970403), 4=NganLuong(970404)");
+                    String c2=sc.nextLine().trim();
+                    if("1".equals(c2)) receivingBankF100="970401";
+                    else if("2".equals(c2)) receivingBankF100="970402";
+                    else if("3".equals(c2)) receivingBankF100="970403";
+                    else if("4".equals(c2)) receivingBankF100="970404";
+                    break;
+                case "2":
+                    if(receivingBankF100==null) {
+                        System.out.println("Chưa set bank!");
+                        break;
+                    }
+                    System.out.print("sourcePan: ");
+                    String spI=sc.nextLine().trim();
+                    System.out.print("destPan: ");
+                    String dpI=sc.nextLine().trim();
+                    doInquiry(spI, dpI, receivingBankF100);
+                    break;
+                case "3":
+                    if(receivingBankF100==null) {
+                        System.out.println("Chưa set bank!");
+                        break;
+                    }
+                    System.out.print("sourcePan: ");
+                    String spP=sc.nextLine().trim();
+                    System.out.print("destPan: ");
+                    String dpP=sc.nextLine().trim();
+                    System.out.print("amount: ");
+                    long amt= Long.parseLong(sc.nextLine().trim());
+                    doPayment(spP, dpP, amt, receivingBankF100);
+                    break;
+            }
+        }
+    }
+
+    private static void doInquiry(String sourcePan, String destPan, String f100){
+        String rc= checkLocal(sourcePan,0,true);
+        if(!"00".equals(rc)) {
+            System.out.println("[TCB] local fail => "+rc);
+            return;
+        }
+        try {
+            ISOMsg iso=new ISOMsg();
+            iso.setPackager(new ISO87APackager());
+            iso.setMTI("0200");
+            iso.set(2, sourcePan);
+            iso.set(3, "432020");
+            // fix F4=12 char
+            iso.set(4, "000000000000");
+            iso.set(32, F32_THIS_BANK);
+            iso.set(100, f100);
+            iso.set(103, destPan);
+            setF11F12F13(iso);
+
+            IsoDebugHelper.debugIso("[TCB] => Napas (Inquiry)", iso);
+            ISOMsg resp = sendAndWait(iso, 15000);
+            if(resp==null) {
+                System.out.println("[TCB] Timeout/no response => ???");
+                return;
+            }
+            IsoDebugHelper.debugIso("[TCB] <= Napas (InquiryResp)", resp);
+
+        } catch(Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    private static void doPayment(String sourcePan, String destPan, long amt, String f100) {
+        String rc= checkLocal(sourcePan, amt,true);
+        if(!"00".equals(rc)) {
+            System.out.println("[TCB] local fail => " + rc);
+            return;
+        }
+        try {
+            ISOMsg iso=new ISOMsg();
+            iso.setPackager(new ISO87APackager());
+            iso.setMTI("0200");
+            iso.set(2, sourcePan);
+            iso.set(3, "912020");
+            iso.set(4, String.format("%012d", amt));
+            iso.set(32, F32_THIS_BANK);
+            iso.set(100, f100);
+            iso.set(103, destPan);
+            setF11F12F13(iso);
+
+            IsoDebugHelper.debugIso("[TCB] => Napas (Payment)", iso);
+            ISOMsg resp= sendAndWait(iso, 15000);
+            if(resp==null) {
+                System.out.println("[TCB] Timeout => ???");
+                return;
+            }
+            IsoDebugHelper.debugIso("[TCB] <= Napas (PaymentResp)", resp);
+
+        } catch(Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    private static ISOMsg sendAndWait(ISOMsg iso, long timeoutMs) throws ISOException, IOException {
+        String stan= iso.hasField(11)? iso.getString(11): null;
+        if(stan==null) throw new ISOException("Missing f11 => cannot wait resp");
+
+        CompletableFuture<ISOMsg> fut = new CompletableFuture<>();
+        pendingRequests.put(stan, fut);
+
+        IsoSocketUtils.sendIsoMessageWithHeader(out, iso);
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.schedule(() -> {
+            if(!fut.isDone()) fut.complete(null);
+            scheduler.shutdown();
+        }, timeoutMs, TimeUnit.MILLISECONDS);
+
+        try {
+            return fut.get(timeoutMs+1000, TimeUnit.MILLISECONDS);
+        } catch(Exception e){
+            return null;
+        } finally {
+            pendingRequests.remove(stan);
+        }
+    }
+
+    private static void setF11F12F13(ISOMsg iso) throws ISOException {
+        iso.set(11, String.format("%06d", new Random().nextInt(999999)));
+        LocalDateTime now= LocalDateTime.now();
+        iso.set(12, now.format(DateTimeFormatter.ofPattern("HHmmss")));
+        iso.set(13, now.format(DateTimeFormatter.ofPattern("MMdd")));
+    }
+
+    private static void copyIfPresent(ISOMsg f, ISOMsg t, int i) throws ISOException{
+        if(f.hasField(i)) {
+            t.set(i, f.getString(i));
+        }
+    }
+
+    private static String checkLocal(String pan, long amt, boolean pay) {
+        Account a= ACCOUNTS.get(pan);
+        if(a==null) return "14";
+        if(!"ACTIVE".equalsIgnoreCase(a.status)) return "62";
+        if(pay){
+            if(a.balance<amt) return "51";
+            a.balance-=amt;
+        }
+        return "00";
+    }
+
+    static class Account {
+        String pan; long balance; String status;
+        Account(String p, long b, String s){ pan=p; balance=b; status=s;}
+    }
+}

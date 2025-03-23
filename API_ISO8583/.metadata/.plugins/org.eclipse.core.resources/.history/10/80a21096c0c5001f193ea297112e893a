@@ -1,0 +1,102 @@
+package socketserver.socket;
+
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.ISOException;
+import org.jpos.iso.packager.ISO87APackager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import socketserver.entity.SocketMessage;
+import socketserver.repository.SocketMessageRepository;
+
+import javax.annotation.PostConstruct;
+import java.io.*;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+
+/**
+ * (2) Socket Server
+ * Lắng nghe cổng 1234, nhận ISO-8583 => log => forward sang (3) => nhận response => log => trả (1).
+ */
+@Component
+public class SocketServer {
+
+    private static final int PORT = 1234;
+
+    @Autowired
+    private SocketMessageRepository msgRepo;
+
+    @PostConstruct
+    public void startServer() {
+        new Thread(() -> {
+            try (ServerSocket server = new ServerSocket(PORT)) {
+                System.out.println("[SocketServer] Listening on port " + PORT);
+                while (true) {
+                    Socket client = server.accept();
+                    new Thread(() -> handleClient(client)).start();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void handleClient(Socket client) {
+        try (InputStream in = client.getInputStream();
+             OutputStream out = client.getOutputStream()) {
+
+            byte[] buf = new byte[4096];
+            int len = in.read(buf);
+            if (len <= 0) return;
+
+            byte[] reqBytes = Arrays.copyOf(buf, len);
+
+            // Unpack
+            ISOMsg isoReq = new ISOMsg();
+            isoReq.setPackager(new ISO87APackager());
+            isoReq.unpack(reqBytes);
+
+            // Log request
+            SocketMessage reqLog = new SocketMessage();
+            reqLog.setType("REQUEST");
+            reqLog.setMti(isoReq.getMTI());
+            if (isoReq.hasField(3)) {
+                reqLog.setF3(isoReq.getString(3));
+            }
+            reqLog.setIsoRaw(new String(reqBytes, StandardCharsets.UTF_8));
+            msgRepo.save(reqLog);
+
+            // Forward sang Restful API Server (3)
+            byte[] respBytes = HttpUtil.postIso(
+                    "http://localhost:8080/api/iso8583/v2",
+                    reqBytes
+            );
+
+            // unpack response
+            ISOMsg isoResp = new ISOMsg();
+            isoResp.setPackager(new ISO87APackager());
+            isoResp.unpack(respBytes);
+
+            // Log response
+            SocketMessage respLog = new SocketMessage();
+            respLog.setType("RESPONSE");
+            respLog.setMti(isoResp.getMTI());
+            if (isoResp.hasField(3)) {
+                respLog.setF3(isoResp.getString(3));
+            }
+            respLog.setIsoRaw(new String(respBytes, StandardCharsets.UTF_8));
+            msgRepo.save(respLog);
+
+            // Trả lại cho Sender (1)
+            out.write(respBytes);
+            out.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+

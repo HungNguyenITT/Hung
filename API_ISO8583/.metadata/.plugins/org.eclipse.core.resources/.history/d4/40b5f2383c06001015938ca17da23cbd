@@ -1,0 +1,25 @@
+package ZaloPay.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import ZaloPay.service.ZaloPayService;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/zalo")
+public class ZaloPayController {
+
+    @Autowired
+    private ZaloPayService zaloPayService;
+
+    @PostMapping(value="/inquiry", consumes=MediaType.APPLICATION_JSON_VALUE, produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> inquiry(@RequestBody Map<String, String> request) {
+        return zaloPayService.processInquiry(request);
+    }
+
+    @PostMapping(value="/payment", consumes=MediaType.APPLICATION_JSON_VALUE, produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> payment(@RequestBody Map<String, String> request) {
+        return zaloPayService.processPayment(request);
+    }
+}

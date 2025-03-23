@@ -1,0 +1,4 @@
+NAPAS\repository\NapasISOMessageRepository.class
+NAPAS\entity\NapasISOMessage.class
+NAPAS\SocketServerApplication.class
+NAPAS\socket\SocketServer.class

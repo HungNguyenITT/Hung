@@ -1,0 +1,280 @@
+package API1.service;
+
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+import utils.IsoSocketUtils;
+import utils.JsonMapperUtil;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.Socket;
+import java.net.URL;
+import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * Quản lý socket kết nối từ API1 <-> Napas.
+ * - Khi API1 chủ động "sendAndWait(...)" => put pendingMap => Napas response => readLoop complete(fut).
+ * - Khi Napas gửi ISO inbound => fut=null => handleInboundRequest(...) => Gọi sang ZaloPay => respond Napas.
+ */
+public class NapasConnectionManager {
+    private final String host;
+    private final int port;
+    private final GenericPackager packager;
+
+    private Socket socket;
+    private DataInputStream in;
+    private DataOutputStream out;
+
+    private final ExecutorService readThread = Executors.newSingleThreadExecutor();
+    private final ConcurrentMap<String, CompletableFuture<ISOMsg>> pendingMap = new ConcurrentHashMap<>();
+
+    // Địa chỉ ZaloPay (HTTP) để chuyển inbound ISO => JSON
+    private static final String ZALOPAY_HOST = "http://localhost:1111"; // tùy cổng
+    // Endpoint mapping: inquiry => /zalo/inquiry, payment => /zalo/payment
+
+    public NapasConnectionManager(String host, int port, GenericPackager packager) throws Exception {
+        this.host=host;
+        this.port=port;
+        this.packager=packager;
+        connect();
+    }
+
+    private void connect() throws Exception {
+        socket = new Socket(host, port);
+        socket.setSoTimeout(0); // persistent
+
+        in= new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+        out= new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+
+        System.out.println("[API1 NapasConn] connected => " + host + ":" + port);
+
+        // start read loop
+        readThread.submit(this::readLoop);
+    }
+
+    /**
+     * Lắng nghe ISO inbound từ Napas.
+     * - Nếu stan khớp pendingMap => .complete => Outbound request
+     * - Ngược lại => inbound request => handleInboundRequest
+     */
+    private void readLoop() {
+        while(!socket.isClosed()){
+            try {
+                ISOMsg iso = IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+                if(iso == null){
+                    System.out.println("[API1 NapasConn] read null => break");
+                    break;
+                }
+                String stan = iso.hasField(11)? iso.getString(11) : null;
+                CompletableFuture<ISOMsg> fut = (stan==null)? null : pendingMap.remove(stan);
+
+                if(fut != null){
+                    // response cho request mà API1 đã sendAndWait()
+                    fut.complete(iso);
+                } else {
+                    // Inbound request => bank=970403 => forward sang ZaloPay
+                    System.out.println("[API1 NapasConn] inbound ISO => handleInboundRequest");
+                    handleInboundRequest(iso);
+                }
+            } catch(IOException | ISOException e){
+                e.printStackTrace();
+                break;
+            }
+        }
+        close();
+    }
+
+    /**
+     * Logic handle inbound ISO (Napas => API1 => ZaloPay).
+     * - parse F3 => xác định inquiry/payment
+     * - chuyển ISO => JSON => gọi HTTP sang ZaloPay
+     * - nhận JSON response => convert => ISO => gửi trả Napas
+     */
+    private void handleInboundRequest(ISOMsg reqIso) {
+        try {
+            // 1) Lấy field -> Map JSON
+            Map<String,String> jsonReq = isoToMap(reqIso);
+
+            // 2) Phân loại inquiry/payment
+            String f3 = jsonReq.getOrDefault("F3","000000");
+            // cắt 3 chữ đầu: "432" => inquiry, "912" => payment,... (tùy logic)
+            String subF3 = f3.length()>=3? f3.substring(0,3) : "000";
+            String httpEndpoint;
+            if("432".equals(subF3)) {
+                httpEndpoint = "/zalo/inquiry";
+            } else if("912".equals(subF3)) {
+                httpEndpoint = "/zalo/payment";
+            } else {
+                // tạm coi ko xác định => trả 12 (invalid transaction)
+                ISOMsg respError = buildAutoResponse(reqIso, "12");
+                IsoSocketUtils.sendIsoMessageWithHeader(out, respError);
+                return;
+            }
+
+            // 3) Gửi sang ZaloPay
+            String url = ZALOPAY_HOST + httpEndpoint;
+            String reqBody = JsonMapperUtil.toJson(jsonReq);
+            String respBody = doHttpPost(url, reqBody);
+            if(respBody == null){
+                // ZaloPay ko phản hồi => 68
+                ISOMsg resp68 = buildAutoResponse(reqIso, "68");
+                IsoSocketUtils.sendIsoMessageWithHeader(out, resp68);
+                return;
+            }
+            // parse JSON => Map => build ISO => respond Napas
+            Map<String,String> jsonResp = JsonMapperUtil.fromJson(respBody);
+            ISOMsg isoResp = mapToIso(reqIso, jsonResp);
+            IsoSocketUtils.sendIsoMessageWithHeader(out, isoResp);
+
+        } catch(Exception e){
+            e.printStackTrace();
+            // Lỗi => F39=96
+            try {
+                ISOMsg errorResp = buildAutoResponse(reqIso, "96");
+                IsoSocketUtils.sendIsoMessageWithHeader(out, errorResp);
+            }catch(Exception ignore){}
+        }
+    }
+
+    /**
+     * mapToIso: Dùng request gốc (reqIso) để copy 1 số field, + copy F39.. từ jsonResp
+     */
+    private ISOMsg mapToIso(ISOMsg reqIso, Map<String,String> jsonResp) throws ISOException {
+        ISOMsg resp = buildAutoResponse(reqIso, jsonResp.getOrDefault("F39","96"));
+        // nếu JSON trả F4,... => set vào ISO
+        // (tuỳ bạn muốn copy field gì từ JSON)
+        for(Map.Entry<String,String> e: jsonResp.entrySet()){
+            String k = e.getKey().toUpperCase(); // F1,F2,...
+            if(k.startsWith("F") && k.length()>1){
+                try {
+                    int fnum = Integer.parseInt(k.substring(1));
+                    if(fnum!=39) { // F39 đã set ở buildAutoResponse
+                        resp.set(fnum, e.getValue());
+                    }
+                } catch(Exception ignore){}
+            }
+        }
+        return resp;
+    }
+
+    // chuyển ISO => Map
+    private Map<String,String> isoToMap(ISOMsg iso) throws ISOException {
+        Map<String,String> m = new ConcurrentHashMap<>();
+        m.put("F1", iso.getMTI());
+        for(int i=2;i<=128;i++){
+            if(iso.hasField(i)) {
+                m.put("F"+i, iso.getString(i));
+            }
+        }
+        return m;
+    }
+
+    // build response 0210, copy 1 số field
+    private ISOMsg buildAutoResponse(ISOMsg req, String rc) throws ISOException {
+        ISOMsg r = new ISOMsg();
+        r.setPackager(packager);
+
+        int mtiReq = Integer.parseInt(req.getMTI());
+        r.setMTI(String.format("%04d", mtiReq + 10)); // 0200->0210
+
+        copyIfPresent(req, r, 2);
+        copyIfPresent(req, r, 3);
+        copyIfPresent(req, r, 4);
+        copyIfPresent(req, r, 11);
+        copyIfPresent(req, r, 12);
+        copyIfPresent(req, r, 13);
+        copyIfPresent(req, r, 32);
+        copyIfPresent(req, r, 100);
+        copyIfPresent(req, r, 103);
+
+        r.set(39, rc);
+        return r;
+    }
+
+    private void copyIfPresent(ISOMsg from, ISOMsg to, int f) {
+        try {
+            if(from.hasField(f)) {
+                to.set(f, from.getString(f));
+            }
+        } catch (ISOException e){
+            e.printStackTrace();
+        }
+    }
+
+    // Gửi request HTTP => ZaloPay
+    private String doHttpPost(String url, String body){
+        HttpURLConnection conn=null;
+        try {
+            URL u=new URL(url);
+            conn=(HttpURLConnection)u.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(15000); // có thể chỉnh
+
+            OutputStream outStream = conn.getOutputStream();
+            outStream.write(body.getBytes("UTF-8"));
+            outStream.flush();
+            outStream.close();
+
+            ByteArrayOutputStream baos=new ByteArrayOutputStream();
+            InputStream in=conn.getInputStream();
+            byte[] buf=new byte[4096];
+            int len;
+            while((len=in.read(buf))!=-1){
+                baos.write(buf,0,len);
+            }
+            in.close();
+
+            return baos.toString("UTF-8");
+        } catch(Exception e){
+            e.printStackTrace();
+            return null;
+        } finally {
+            if(conn!=null) conn.disconnect();
+        }
+    }
+
+    // ------------------------------------------
+    // Outbound request => sendAndWait
+    public ISOMsg sendAndWait(ISOMsg iso, long timeoutMs) throws ISOException, IOException {
+        if(!iso.hasField(11)){
+            throw new ISOException("[API1 NapasConn] missing F11 => can't wait");
+        }
+        String stan= iso.getString(11);
+        CompletableFuture<ISOMsg> fut = new CompletableFuture<>();
+        pendingMap.put(stan, fut);
+
+        IsoSocketUtils.sendIsoMessageWithHeader(out, iso);
+
+        if(timeoutMs>0){
+            ScheduledExecutorService sched = Executors.newSingleThreadScheduledExecutor();
+            sched.schedule(() -> {
+                if(!fut.isDone()) fut.complete(null);
+                sched.shutdown();
+            }, timeoutMs, TimeUnit.MILLISECONDS);
+        }
+        try {
+            return fut.get(timeoutMs+500, TimeUnit.MILLISECONDS);
+        } catch(Exception e){
+            return null;
+        } finally {
+            pendingMap.remove(stan);
+        }
+    }
+
+    public void close(){
+        try {
+            if(socket!=null && !socket.isClosed()){
+                socket.close();
+            }
+        }catch(Exception e){
+            e.printStackTrace();
+        }
+        readThread.shutdownNow();
+    }
+}

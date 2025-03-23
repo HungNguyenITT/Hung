@@ -1,0 +1,143 @@
+package API2.service;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+import utils.IsoDebugHelper;
+import utils.IsoSocketUtils;
+import utils.LogHelper;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class Api2Service {
+    private static final String NAPAS_HOST = "localhost";
+    private static final int NAPAS_PORT = 1515;
+    private static GenericPackager packager;
+
+    static {
+        try {
+            InputStream is = Api2Service.class.getResourceAsStream("/iso87binary.xml");
+            if (is == null) {
+                System.err.println("Error: File iso87binary.xml not found in resources.");
+                packager = null;
+            } else {
+                packager = new GenericPackager(is);
+                System.out.println("GenericPackager initialized successfully for Api2Service.");
+            }
+        } catch (Exception e) {
+            System.err.println("Error initializing GenericPackager: " + e.getMessage());
+            e.printStackTrace();
+            packager = null;
+        }
+    }
+
+    public Map<String, String> handleInquiry(Map<String, String> jsonMap) throws Exception {
+        if (packager == null) {
+            throw new IllegalStateException("GenericPackager is not initialized. Please check iso87binary.xml.");
+        }
+        logInbound("API2", "/inquiry", jsonMap);
+
+        ISOMsg isoMsg = jsonToIso(jsonMap);
+        logIsoOutbound("API2", "inquiry => Napas", isoMsg);
+
+        ISOMsg responseIso = sendAndReceiveIso(isoMsg);
+        logIsoInbound("API2", "inquiryResp <= Napas", responseIso);
+
+        Map<String, String> response = isoToJson(responseIso);
+        logInbound("API2", "/inquiryResp", response);
+        return response;
+    }
+
+    public Map<String, String> handlePayment(Map<String, String> jsonMap) throws Exception {
+        if (packager == null) {
+            throw new IllegalStateException("GenericPackager is not initialized. Please check iso87binary.xml.");
+        }
+        logInbound("API2", "/payment", jsonMap);
+
+        ISOMsg isoMsg = jsonToIso(jsonMap);
+        logIsoOutbound("API2", "payment => Napas", isoMsg);
+
+        ISOMsg responseIso = sendAndReceiveIso(isoMsg);
+        logIsoInbound("API2", "paymentResp <= Napas", responseIso);
+
+        Map<String, String> response = isoToJson(responseIso);
+        logInbound("API2", "/paymentResp", response);
+        return response;
+    }
+
+    private ISOMsg jsonToIso(Map<String, String> jsonMap) throws Exception {
+        if (packager == null) {
+            throw new IllegalStateException("Packager is not initialized");
+        }
+        ISOMsg iso = new ISOMsg();
+        iso.setPackager(packager);
+        for (Map.Entry<String, String> entry : jsonMap.entrySet()) {
+            String key = entry.getKey();
+            if ("MTI".equals(key)) {
+                iso.setMTI(entry.getValue());
+            } else if (key.startsWith("F")) {
+                int fieldNum = Integer.parseInt(key.substring(1));
+                iso.set(fieldNum, entry.getValue());
+            }
+        }
+        return iso;
+    }
+
+    private ISOMsg sendAndReceiveIso(ISOMsg isoMsg) throws Exception {
+        try (Socket socket = new Socket(NAPAS_HOST, NAPAS_PORT)) {
+            socket.setSoTimeout(10000); // Timeout 10 giây để đọc response
+            OutputStream out = socket.getOutputStream();
+            InputStream in = socket.getInputStream();
+            System.out.println("[Api1Service] Sending ISO message to Napas on port " + NAPAS_PORT);
+            IsoSocketUtils.sendIsoMessageWithHeader(out, isoMsg);
+            
+            // Đảm bảo dữ liệu đã được gửi ra trước khi bắt đầu đọc response
+            Thread.sleep(100); 
+            
+            System.out.println("[Api1Service] Waiting for response from Napas...");
+            ISOMsg response = IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+            System.out.println("[Api1Service] Received response from Napas");
+            return response;
+        }
+    }
+
+    private Map<String, String> isoToJson(ISOMsg iso) throws Exception {
+        Map<String, String> jsonMap = new HashMap<>();
+        if (iso == null) {
+            jsonMap.put("F39", "96");
+            return jsonMap;
+        }
+        jsonMap.put("MTI", iso.getMTI());
+        for (int i = 1; i <= 128; i++) {
+            if (iso.hasField(i)) {
+                jsonMap.put("F" + i, iso.getString(i));
+            }
+        }
+        return jsonMap;
+    }
+
+    private void logInbound(String service, String path, Map<String, String> data) {
+        System.out.println("=== [" + service + "] Inbound " + path + " ===");
+        data.forEach((k, v) -> System.out.println(k + "=" + v));
+        System.out.println("==========");
+    }
+
+    private void logIsoOutbound(String service, String path, ISOMsg isoMsg) {
+        System.out.println("=== [" + service + "] " + path + " ===");
+        IsoDebugHelper.debugIso(service + " OUT", isoMsg);
+        LogHelper.logToBothBanks(isoMsg, "OUT");
+    }
+
+    private void logIsoInbound(String service, String path, ISOMsg isoMsg) {
+        System.out.println("=== [" + service + "] " + path + " ===");
+        IsoDebugHelper.debugIso(service + " IN", isoMsg);
+        LogHelper.logToBothBanks(isoMsg, "IN");
+    }
+}

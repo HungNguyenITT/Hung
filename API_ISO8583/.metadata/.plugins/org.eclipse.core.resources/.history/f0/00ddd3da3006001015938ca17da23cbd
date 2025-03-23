@@ -1,0 +1,178 @@
+package API1.service;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+import utils.IsoDebugHelper;
+import utils.IsoSocketUtils;
+import utils.LogHelper;
+import org.springframework.stereotype.Service;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class Api1Service {
+    private static final String NAPAS_HOST = "localhost";
+    private static final int NAPAS_PORT = 1414;
+    private static GenericPackager packager;
+
+    static {
+        try {
+            InputStream is= Api1Service.class.getResourceAsStream("/iso87binary.xml");
+            if(is==null) throw new RuntimeException("iso87binary.xml not found in resources for Api1");
+            packager=new GenericPackager(is);
+            System.out.println("GenericPackager init ok for Api1Service");
+        } catch(Exception e){
+            e.printStackTrace();
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Map<String, String> handleInquiry(Map<String, String> jsonMap) throws Exception {
+        logInbound("API1","/inquiry",jsonMap);
+        Map<String,String> isoReq= prepareISORequest(jsonMap,"432020","970403");
+        logIsoOutbound("API1","inquiry => Napas", isoReq);
+
+        ISOMsg isoMsg= mapToIso(isoReq);
+        ISOMsg respIso= sendAndReceiveIso(isoMsg);
+
+        Map<String,String> response= isoToJson(respIso);
+        logInbound("API1","/inquiryResp",response);
+        return response;
+    }
+
+    public Map<String, String> handlePayment(Map<String, String> jsonMap) throws Exception {
+        logInbound("API1","/payment",jsonMap);
+        Map<String,String> isoReq= prepareISORequest(jsonMap,"912020","970403");
+        logIsoOutbound("API1","payment => Napas", isoReq);
+
+        ISOMsg isoMsg= mapToIso(isoReq);
+        ISOMsg respIso= sendAndReceiveIso(isoMsg);
+
+        Map<String,String> response= isoToJson(respIso);
+        logInbound("API1","/paymentResp",response);
+        return response;
+    }
+
+    private Map<String,String> prepareISORequest(Map<String,String> req, String defaultPC, String fixF32){
+        Map<String,String> isoReq=new HashMap<>();
+        for(Map.Entry<String,String> e: req.entrySet()){
+            isoReq.put(e.getKey().toUpperCase(), e.getValue());
+        }
+        if(!isoReq.containsKey("F1")){
+            isoReq.put("F1","0200");
+        }
+        if(!isoReq.containsKey("F3")){
+            isoReq.put("F3",defaultPC);
+        }
+        // F4 => 12
+        if(!isoReq.containsKey("F4")){
+            isoReq.put("F4","000000000000");
+        } else {
+            try{
+                long amt= Long.parseLong(isoReq.get("F4"));
+                isoReq.put("F4", String.format("%012d", amt));
+            } catch(Exception e){
+                isoReq.put("F4","000000000000");
+            }
+        }
+        // F2 => if missing
+        if(!isoReq.containsKey("F2") && isoReq.containsKey("SOURCEPAN")){
+            isoReq.put("F2", isoReq.get("SOURCEPAN"));
+        }
+        // F103 => if missing
+        if(!isoReq.containsKey("F103") && isoReq.containsKey("DESTPAN")){
+            isoReq.put("F103", isoReq.get("DESTPAN"));
+        }
+        // F11 => random
+        if(!isoReq.containsKey("F11")){
+            isoReq.put("F11", String.format("%06d",(int)(Math.random()*1000000)));
+        }
+        // F12 => HHmmss
+        if(!isoReq.containsKey("F12")){
+            isoReq.put("F12", new SimpleDateFormat("HHmmss").format(new Date()));
+        }
+        // F13 => MMdd
+        if(!isoReq.containsKey("F13")){
+            isoReq.put("F13", new SimpleDateFormat("MMdd").format(new Date()));
+        }
+
+        // F32 => fixF32 (Zalo=970403)
+        isoReq.put("F32", fixF32);
+        if(!isoReq.containsKey("F100")){
+            isoReq.put("F100","");
+        }
+        return isoReq;
+    }
+
+    private ISOMsg mapToIso(Map<String,String> isoReq) throws Exception {
+        ISOMsg iso= new ISOMsg();
+        iso.setPackager(packager);
+        for(Map.Entry<String,String> e: isoReq.entrySet()){
+            String k=e.getKey();
+            if("F1".equals(k)){
+                iso.setMTI(e.getValue());
+            } else if(k.startsWith("F")){
+                try{
+                    int fn=Integer.parseInt(k.substring(1));
+                    iso.set(fn, e.getValue());
+                } catch(NumberFormatException ex){}
+            }
+        }
+        return iso;
+    }
+
+    private ISOMsg sendAndReceiveIso(ISOMsg isoMsg) throws Exception {
+        try(Socket socket= new Socket(NAPAS_HOST,NAPAS_PORT)){
+            socket.setSoTimeout(15000);
+            OutputStream out= socket.getOutputStream();
+            InputStream in= socket.getInputStream();
+
+            byte[] packed= isoMsg.pack();
+            System.out.println("[Api1Service] Packed length="+packed.length);
+            IsoSocketUtils.sendIsoMessageWithHeader(out, isoMsg);
+            System.out.println("[Api1Service] waiting Napas response...");
+
+            ISOMsg response= IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+            System.out.println("[Api1Service] got response from Napas");
+            return response;
+        }
+    }
+
+    private Map<String,String> isoToJson(ISOMsg iso) throws Exception {
+        Map<String,String> j=new HashMap<>();
+        if(iso==null){
+            j.put("F39","96");
+            return j;
+        }
+        j.put("F1", iso.getMTI());
+        for(int i=1;i<=128;i++){
+            if(iso.hasField(i)){
+                j.put("F"+i, iso.getString(i));
+            }
+        }
+        return j;
+    }
+
+    private void logInbound(String svc,String path, Map<String,String> data){
+        System.out.println("=== ["+svc+"] Inbound "+path+" ===");
+        data.forEach((k,v)->System.out.println(k+"="+v));
+        System.out.println("==========");
+    }
+
+    private void logIsoOutbound(String svc,String path, Map<String,String> isoReq){
+        System.out.println("=== ["+svc+"] "+path+" ===");
+        isoReq.forEach((k,v)->System.out.println(k+"="+v));
+        System.out.println("==========");
+    }
+
+    private void logInbound(String svc,String path, ISOMsg iso){
+        System.out.println("=== ["+svc+"] Inbound "+path+" ===");
+        IsoDebugHelper.debugIso(svc+" IN", iso);
+        LogHelper.logToBothBanks(iso,"IN");
+    }
+}

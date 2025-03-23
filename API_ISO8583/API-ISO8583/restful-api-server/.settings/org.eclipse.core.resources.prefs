@@ -1,0 +1,6 @@
+eclipse.preferences.version=1
+encoding//src/main/java/API/ISO8583/controller/ISO8583Controller.java=UTF-8
+encoding//src/main/java/API/ISO8583/dto/ISO8583RequestDTO.java=UTF-8
+encoding//src/main/java/API/ISO8583/entity/ISO8583Message.java=UTF-8
+encoding//src/main/java/API/ISO8583/service/AccountService.java=UTF-8
+encoding//src/main/java/API/ISO8583/service/ISO8583Service.java=UTF-8

@@ -1,0 +1,105 @@
+package ZaloPay.CLI;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+import ZaloPay.service.ZaloPayService;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+
+@Component
+public class ZaloPayCLI implements CommandLineRunner {
+
+    private final ZaloPayService zaloPayService;
+    // Biến lưu F100 (mã ngân hàng nhận)
+    private String receivingBankF100 = null;
+
+    public ZaloPayCLI(ZaloPayService zaloPayService) {
+        this.zaloPayService = zaloPayService;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        while(true) {
+            System.out.println("\n===== [ZaloPay CLI] =====");
+            System.out.println("1. Set receiving bank (F100)");
+            System.out.println("2. Inquiry");
+            System.out.println("3. Payment");
+            System.out.println("0. Exit CLI");
+            System.out.print("Chọn: ");
+            String choice = scanner.nextLine().trim();
+            if("0".equals(choice)) break;
+            
+            if("1".equals(choice)) {
+                System.out.println("Chọn ngân hàng nhận:");
+                System.out.println("1 = VCB (970401), 2 = TCB (970402), 4 = NganLuong (970404)");
+                String bankChoice = scanner.nextLine().trim();
+                if("1".equals(bankChoice)) {
+                    receivingBankF100 = "970401";
+                } else if("2".equals(bankChoice)) {
+                    receivingBankF100 = "970402";
+                } else if("4".equals(bankChoice)) {
+                    receivingBankF100 = "970404";
+                } else {
+                    System.out.println("Lựa chọn không hợp lệ.");
+                    continue;
+                }
+                System.out.println("[ZaloPay CLI] => Đã set F100 = " + receivingBankF100);
+            }
+            else if("2".equals(choice)) {
+                if(receivingBankF100 == null) {
+                    System.out.println("[ZaloPay CLI] F100 chưa được thiết lập!");
+                    continue;
+                }
+                // Nhập trực tiếp các trường F1-F4
+                System.out.print("F1 (MTI, ví dụ 0200): ");
+                String f1 = scanner.nextLine().trim();
+                System.out.print("F2 (PAN): ");
+                String f2 = scanner.nextLine().trim();
+                System.out.print("F3 (Processing Code, ví dụ 432020): ");
+                String f3 = scanner.nextLine().trim();
+                System.out.print("F4 (Amount, số nguyên): ");
+                String f4 = scanner.nextLine().trim();
+                
+                Map<String, String> req = new HashMap<>();
+                req.put("F1", f1);
+                req.put("F2", f2);
+                req.put("F3", f3);
+                req.put("F4", f4);
+                req.put("F100", receivingBankF100);
+                // Nếu có DESTPAN (sẽ được map sang F103), có thể nhập thêm nếu cần.
+                
+                Map<String, String> resp = zaloPayService.processInquiry(req);
+                System.out.println("Response: " + resp);
+            }
+            else if("3".equals(choice)) {
+                if(receivingBankF100 == null) {
+                    System.out.println("[ZaloPay CLI] F100 chưa được thiết lập!");
+                    continue;
+                }
+                System.out.print("F1 (MTI, ví dụ 0200): ");
+                String f1 = scanner.nextLine().trim();
+                System.out.print("F2 (PAN): ");
+                String f2 = scanner.nextLine().trim();
+                System.out.print("F3 (Processing Code, ví dụ 912020): ");
+                String f3 = scanner.nextLine().trim();
+                System.out.print("F4 (Amount, số nguyên): ");
+                String f4 = scanner.nextLine().trim();
+                
+                Map<String, String> req = new HashMap<>();
+                req.put("F1", f1);
+                req.put("F2", f2);
+                req.put("F3", f3);
+                req.put("F4", f4);
+                req.put("F100", receivingBankF100);
+                
+                Map<String, String> resp = zaloPayService.processPayment(req);
+                System.out.println("Response: " + resp);
+            }
+            else {
+                System.out.println("Lựa chọn không hợp lệ.");
+            }
+        }
+    }
+}

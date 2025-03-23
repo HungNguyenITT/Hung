@@ -1,0 +1,257 @@
+package Napas.server;
+
+import Napas.entity.NapasMessage;
+import Napas.repository.NapasMessageRepository;
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.ISO87APackager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+import java.io.*;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
+import java.util.Random;
+
+@Component
+public class SocketServer {
+
+    private static final int PORT = 9090; // Napas listening port
+    private static final Random RAND = new Random();
+
+    // File log
+    private static final String LOG_FILE = "napas.log";
+
+    @Autowired
+    private NapasMessageRepository repo;
+
+    @PostConstruct
+    public void startServer() {
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+                System.out.println("[NAPAS] Listening on port " + PORT);
+                while (true) {
+                    Socket client = serverSocket.accept();
+                    new Thread(() -> handleClient(client)).start();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void handleClient(Socket client) {
+        try (InputStream in = client.getInputStream();
+             OutputStream out = client.getOutputStream()) {
+
+            client.setSoTimeout(5000);
+
+            // Đọc request
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            while (true) {
+                try {
+                    int readCount = in.read(buffer);
+                    if (readCount < 0) break;
+                    if (readCount > 0) baos.write(buffer, 0, readCount);
+                } catch (SocketTimeoutException ste) {
+                    break;
+                }
+            }
+
+            byte[] reqBytes = baos.toByteArray();
+            if (reqBytes.length == 0) {
+                logToFile("[NAPAS] No data received from BankPhatLenh => skip");
+                return;
+            }
+
+            ISOMsg isoReq = new ISOMsg();
+            isoReq.setPackager(new ISO87APackager());
+            isoReq.unpack(reqBytes);
+
+            ensureField11(isoReq);
+            ensureField12_13(isoReq);
+            
+            // LOG #1: Ghi bản tin incoming theo format XML
+            logIsoXml(isoReq, "Phát lệnh");
+
+            // Lưu request vào DB
+            NapasMessage requestEntity = createEntity("REQUEST", isoReq);
+            repo.save(requestEntity);
+
+            // Forward sang Bank Nhận Lệnh => nhận isoResp
+            ISOMsg isoResp = forwardToBankB(isoReq);
+
+            if (isoResp == null) {
+                // Nếu không có resp => trả text
+                logToFile("[NAPAS] No response from BankNhậnLệnh => returning error text");
+                out.write("No response from BankNhậnLệnh".getBytes("UTF-8"));
+                return;
+            }
+
+            // Lưu response DB
+            NapasMessage responseEntity = createEntity("RESPONSE", isoResp);
+            repo.save(responseEntity);
+
+            // LOG #2: Ghi bản tin outgoing theo format XML
+            logIsoXml(isoResp, "Trả lệnh");
+
+            // Gửi phản hồi về Bank Phát Lệnh
+            byte[] respBytes = isoResp.pack();
+            out.write(respBytes);
+            out.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            logToFile("[NAPAS] Exception: " + e.getMessage());
+        } finally {
+            try {
+                client.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private ISOMsg forwardToBankB(ISOMsg req) {
+        String f100 = req.hasField(100) ? req.getString(100) : "";
+        int bankPort = "970403".equals(f100) ? 9092 : 9091;
+
+        try (Socket socket = new Socket("localhost", bankPort);
+             OutputStream out = socket.getOutputStream();
+             InputStream in = socket.getInputStream()) {
+
+            socket.setSoTimeout(5000);
+
+            out.write(req.pack());
+            out.flush();
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            while (true) {
+                try {
+                    int readCount = in.read(buf);
+                    if (readCount < 0) break;
+                    if (readCount > 0) baos.write(buf, 0, readCount);
+                } catch (SocketTimeoutException ste) {
+                    break;
+                }
+            }
+            byte[] respBytes = baos.toByteArray();
+            if (respBytes.length == 0) return null;
+
+            ISOMsg isoResp = new ISOMsg();
+            isoResp.setPackager(new ISO87APackager());
+            isoResp.unpack(respBytes);
+
+            // Copy f32/f100 nếu BankNhậnLệnh ko trả
+            if (!isoResp.hasField(32) && req.hasField(32)) {
+                isoResp.set(32, req.getString(32));
+            }
+            if (!isoResp.hasField(100) && req.hasField(100)) {
+                isoResp.set(100, req.getString(100));
+            }
+            return isoResp;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            logToFile("[NAPAS] forwardToBankB Exception: " + e.getMessage());
+            return null;
+        }
+    }
+
+
+    //Ghi log một bản tin ISO dạng XML-like
+    private synchronized void logIsoXml(ISOMsg iso, String direction) {
+        try {
+            // Thêm timestamp
+            String timeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
+
+            // Dùng StringBuilder để build XML
+            StringBuilder sb = new StringBuilder();
+            sb.append("[").append(timeStr).append("]\n");
+            sb.append("<isomsg =\"").append(direction).append("\">\n");
+
+            // Lặp các field, in ra
+            // (có thể in theo field ID từ 0..128, hoặc lấy getMaxField())
+            for(int i=0; i<=128; i++){
+                if(iso.hasField(i)) {
+                    sb.append("    <field id=\"").append(i)
+                      .append("\" value=\"").append(escapeXml(iso.getString(i)))
+                      .append("\"/>\n");
+                }
+            }
+            sb.append("</isomsg>\n");
+
+
+            // Ghi ra file
+            logToFile(sb.toString());
+
+        } catch(Exception e) {
+            logToFile("logIsoXml exception: " + e.getMessage());
+        }
+    }
+
+    
+    //Hàm escape ký tự đặc biệt, ví dụ & => &amp;
+    //để tránh XML parse error
+    private String escapeXml(String input) {
+        if(input==null) return "";
+        return input.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;");
+    }
+
+    //Ghi log text vào file (append) 
+    private synchronized void logToFile(String msg) {
+        try (FileWriter fw = new FileWriter(LOG_FILE, true);
+             PrintWriter pw = new PrintWriter(fw)) {
+            pw.println(msg);
+            pw.flush();
+        } catch(IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void ensureField11(ISOMsg iso) throws ISOException {
+        if(!iso.hasField(11)) {
+            iso.set(11, String.format("%06d", RAND.nextInt(1000000)));
+        }
+    }
+
+    private void ensureField12_13(ISOMsg iso) throws ISOException {
+        LocalDateTime now = LocalDateTime.now();
+        DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HHmmss");
+        DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("MMdd");
+        if(!iso.hasField(12)) {
+            iso.set(12, now.format(timeFmt));
+        }
+        if(!iso.hasField(13)) {
+            iso.set(13, now.format(dateFmt));
+        }
+    }
+
+    private NapasMessage createEntity(String type, ISOMsg iso) throws ISOException {
+        NapasMessage entity = new NapasMessage();
+        entity.setType(type);
+        entity.setF1(iso.getMTI());
+        if(iso.hasField(2)) entity.setF2(iso.getString(2));
+        if(iso.hasField(3)) entity.setF3(iso.getString(3));
+        if(iso.hasField(4)) entity.setF4(iso.getString(4));
+        if(iso.hasField(11)) entity.setF11(iso.getString(11));
+        if(iso.hasField(12)) entity.setF12(iso.getString(12));
+        if(iso.hasField(13)) entity.setF13(iso.getString(13));
+        if(iso.hasField(39)) entity.setF39(iso.getString(39));
+        if(iso.hasField(47)) entity.setF47(iso.getString(47));
+        if(iso.hasField(48)) entity.setF48(iso.getString(48));
+        if(iso.hasField(32)) entity.setF32(iso.getString(32));
+        if(iso.hasField(100)) entity.setF100(iso.getString(100));
+
+        return entity;
+    }
+}

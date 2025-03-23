@@ -1,0 +1,188 @@
+package Napas.server;
+
+import Napas.entity.NapasMessage;
+import Napas.repository.NapasMessageRepository;
+import Napas.service.PortConfigService;
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.ISO87APackager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import utils.IsoSocketUtils;
+import utils.LogHelper;
+
+import javax.annotation.PostConstruct;
+import java.io.*;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+@Component
+public class SocketServer implements Runnable {
+
+    @Autowired
+    private NapasMessageRepository repo;
+
+    @Autowired
+    private PortConfigService portConfigService; // Dịch vụ lấy port từ file cấu hình
+
+    private final ExecutorService executorService = Executors.newCachedThreadPool(); // Executor cho các kết nối
+
+    @PostConstruct
+    public void init() {
+        new Thread(this).start(); // Bắt đầu việc lắng nghe khi ứng dụng khởi động
+    }
+
+    public void run() {
+        // Lấy tất cả các ngân hàng và cổng từ PortConfigService
+        Map<String, Integer> portMap = portConfigService.getPortMap();  // Lấy Map chứa tất cả các ngân hàng và cổng của chúng
+
+        for (Map.Entry<String, Integer> entry : portMap.entrySet()) {
+            String bankCode = entry.getKey();
+            int port = entry.getValue();
+
+            if (port != -1) {
+                executorService.submit(() -> startServerSocket(port, bankCode)); // Mỗi ngân hàng sẽ có 1 cổng riêng biệt
+            }
+        }
+    }
+
+    // Hàm lắng nghe các kết nối trên một port riêng biệt cho mỗi ngân hàng
+    private void startServerSocket(int port, String bankCode) {
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("Server đang lắng nghe tại port " + port + " cho ngân hàng " + bankCode);
+            while (true) {
+                Socket clientSocket = serverSocket.accept(); // Chấp nhận kết nối từ ngân hàng
+                executorService.submit(() -> handleClient(clientSocket, bankCode)); // Xử lý kết nối của ngân hàng
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handleClient(Socket sock, String bankCode) {
+        try (InputStream in = sock.getInputStream();
+             OutputStream out = sock.getOutputStream()) {
+            ISOMsg isoReq = IsoSocketUtils.readIsoMessageWithHeader(in, new ISO87APackager());
+            LogHelper.logToBothBanks(isoReq, "Phát lệnh");
+            NapasMessage reqEntity = createEntity("REQUEST", isoReq);
+            repo.save(reqEntity);
+
+            ISOMsg isoResp = forwardToTargetWait15s(isoReq, bankCode);
+
+            LogHelper.logToBothBanks(isoResp, "Trả lệnh");
+            NapasMessage respEntity = createEntity("RESPONSE", isoResp);
+            repo.save(respEntity);
+
+            IsoSocketUtils.sendIsoMessageWithHeader(out, isoResp);
+            out.flush();
+            sock.shutdownOutput();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private ISOMsg forwardToTargetWait15s(ISOMsg req, String bankCode) {
+        int port = pickPort(bankCode);
+        if (port <= 0) return buildTimeoutResp(req);
+
+        ISOMsg[] holder = new ISOMsg[1];
+        try (Socket sock = new Socket("localhost", port);
+             OutputStream out = sock.getOutputStream();
+             InputStream in = sock.getInputStream()) {
+            IsoSocketUtils.sendIsoMessageWithHeader(out, req);
+            sock.shutdownOutput();
+
+            Thread readerThread = new Thread(() -> {
+                try {
+                    ISOMsg resp = IsoSocketUtils.readIsoMessageWithHeader(in, new ISO87APackager());
+                    synchronized (holder) {
+                        holder[0] = resp;
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            });
+            readerThread.start();
+
+            Thread.sleep(15000);
+
+            synchronized (holder) {
+                if (holder[0] != null) {
+                    ISOMsg isoResp = holder[0];
+                    if (!isoResp.hasField(32) && req.hasField(32))
+                        isoResp.set(32, req.getString(32));
+                    if (!isoResp.hasField(100) && req.hasField(100))
+                        isoResp.set(100, req.getString(100));
+                    return isoResp;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return buildTimeoutResp(req);
+    }
+
+    private ISOMsg buildTimeoutResp(ISOMsg req) {
+        try {
+            ISOMsg r = new ISOMsg();
+            r.setPackager(new ISO87APackager());
+            int mti = Integer.parseInt(req.getMTI());
+            r.setMTI(String.format("%04d", mti + 10));
+            copyIfPresent(req, r, 2);
+            copyIfPresent(req, r, 3);
+            copyIfPresent(req, r, 4);
+            copyIfPresent(req, r, 11);
+            copyIfPresent(req, r, 12);
+            copyIfPresent(req, r, 13);
+            copyIfPresent(req, r, 32);
+            copyIfPresent(req, r, 37);
+            copyIfPresent(req, r, 100);
+            copyIfPresent(req, r, 103);
+            r.set(39, "68");
+            return r;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private int pickPort(String bankCode) {
+        return portConfigService.getPort(bankCode); // Lấy cổng từ PortConfigService
+    }
+
+    private NapasMessage createEntity(String type, ISOMsg iso) throws ISOException {
+        NapasMessage n = new NapasMessage();
+        n.setType(type);
+        n.setF1(iso.getMTI());
+        if (iso.hasField(2))
+            n.setF2(iso.getString(2));
+        if (iso.hasField(3))
+            n.setF3(iso.getString(3));
+        if (iso.hasField(4))
+            n.setF4(iso.getString(4));
+        if (iso.hasField(11))
+            n.setF11(iso.getString(11));
+        if (iso.hasField(12))
+            n.setF12(iso.getString(12));
+        if (iso.hasField(13))
+            n.setF13(iso.getString(13));
+        if (iso.hasField(32))
+            n.setF32(iso.getString(32));
+        if (iso.hasField(39))
+            n.setF39(iso.getString(39));
+        if (iso.hasField(100))
+            n.setF100(iso.getString(100));
+        if (iso.hasField(103))
+            n.setF103(iso.getString(103));
+        return n;
+    }
+
+    private void copyIfPresent(ISOMsg from, ISOMsg to, int f) throws ISOException {
+        if (from.hasField(f)) {
+            to.set(f, from.getString(f));
+        }
+    }
+}

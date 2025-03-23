@@ -1,0 +1,68 @@
+package NganLuong.CLI;
+
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+
+import NganLuong.service.NganLuongService;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+
+@Component
+public class NganLuongCLI implements CommandLineRunner {
+
+    private final NganLuongService nganLuongService;
+
+    public NganLuongCLI(NganLuongService nganLuongService) {
+        this.nganLuongService = nganLuongService;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        while(true) {
+            System.out.println("\n===== [NganLuong CLI] =====");
+            System.out.println("1. Inquiry");
+            System.out.println("2. Payment");
+            System.out.println("0. Exit CLI");
+            System.out.print("Chọn: ");
+            String choice = scanner.nextLine().trim();
+            if ("0".equals(choice)) {
+                break;
+            }
+            if ("1".equals(choice)) {
+                System.out.print("sourcePan: ");
+                String sourcePan = scanner.nextLine().trim();
+                System.out.print("destPan: ");
+                String destPan = scanner.nextLine().trim();
+                Map<String, String> req = new HashMap<>();
+                req.put("sourcePan", sourcePan);
+                req.put("destPan", destPan);
+                req.put("f100", "970404"); // mã bank NganLuong
+                req.put("processingCode", "432020");
+                req.put("amount", "0");
+                Map<String, String> resp = nganLuongService.processInquiry(req);
+                System.out.println("Response: " + resp);
+            } else if ("2".equals(choice)) {
+                System.out.print("sourcePan: ");
+                String sourcePan = scanner.nextLine().trim();
+                System.out.print("destPan: ");
+                String destPan = scanner.nextLine().trim();
+                System.out.print("amount: ");
+                String amt = scanner.nextLine().trim();
+                Map<String, String> req = new HashMap<>();
+                req.put("sourcePan", sourcePan);
+                req.put("destPan", destPan);
+                req.put("f100", "970404");
+                req.put("processingCode", "912020");
+                req.put("amount", amt);
+                Map<String, String> resp = nganLuongService.processPayment(req);
+                System.out.println("Response: " + resp);
+            } else {
+                System.out.println("Lựa chọn không hợp lệ.");
+            }
+        }
+    }
+}

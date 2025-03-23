@@ -1,0 +1,139 @@
+package API2.service;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+import org.springframework.stereotype.Service;
+import utils.IsoDebugHelper;
+import utils.IsoSocketUtils;
+import utils.LogHelper;
+import java.io.*;
+import java.net.Socket;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+@Service
+public class Api2Service {
+    private static final String NAPAS_HOST="localhost";
+    private static final int NAPAS_PORT=1515;
+
+    private static GenericPackager packager;
+    static {
+        try {
+            InputStream is= Api2Service.class.getResourceAsStream("/iso87binary.xml");
+            if(is==null) throw new RuntimeException("iso87binary.xml not found in /API2!");
+            packager= new GenericPackager(is);
+        } catch(Exception e){
+            e.printStackTrace();
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Map<String,String> handleInquiry(Map<String,String> req)throws Exception{
+        logInbound("API2","/inquiry",req);
+        ISOMsg isoReq= buildIsoRequest(req,"432020","970404");
+        logIsoOutbound("API2","inquiry => Napas", isoReq);
+
+        ISOMsg isoResp= sendAndReceiveIso(isoReq);
+        Map<String,String> resp= isoToJson(isoResp);
+        logInbound("API2","/inquiryResp",resp);
+        return resp;
+    }
+
+    public Map<String,String> handlePayment(Map<String,String> req)throws Exception{
+        logInbound("API2","/payment",req);
+        ISOMsg isoReq= buildIsoRequest(req,"912020","970404");
+        logIsoOutbound("API2","payment => Napas", isoReq);
+
+        ISOMsg isoResp= sendAndReceiveIso(isoReq);
+        Map<String,String> resp= isoToJson(isoResp);
+        logInbound("API2","/paymentResp",resp);
+        return resp;
+    }
+
+    private ISOMsg sendAndReceiveIso(ISOMsg iso)throws Exception{
+        try(Socket socket= new Socket(NAPAS_HOST,NAPAS_PORT)){
+            socket.setSoTimeout(10000);
+            OutputStream out= socket.getOutputStream();
+            InputStream in= socket.getInputStream();
+            IsoSocketUtils.sendIsoMessageWithHeader(out, iso);
+            ISOMsg resp= IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+            return resp;
+        }
+    }
+
+    private ISOMsg buildIsoRequest(Map<String,String> j, String defaultPC, String f32)throws Exception{
+        Map<String,String> tmp= new HashMap<>();
+        j.forEach((k,v)-> tmp.put(k.toUpperCase(), v));
+        if(!tmp.containsKey("F1")){
+            tmp.put("F1","0200");
+        }
+        if(!tmp.containsKey("F3")){
+            tmp.put("F3", defaultPC);
+        }
+        if(!tmp.containsKey("F4")){
+            tmp.put("F4","000000000000");
+        } else {
+            long amt=0; 
+            try{amt=Long.parseLong(tmp.get("F4"));}catch(Exception ignored){}
+            tmp.put("F4", String.format("%012d", amt));
+        }
+        if(!tmp.containsKey("F11")){
+            tmp.put("F11", String.format("%06d",(int)(Math.random()*1000000)));
+        }
+        if(!tmp.containsKey("F12")){
+            tmp.put("F12", new SimpleDateFormat("HHmmss").format(new Date()));
+        }
+        if(!tmp.containsKey("F13")){
+            tmp.put("F13", new SimpleDateFormat("MMdd").format(new Date()));
+        }
+        tmp.put("F32", f32);
+        if(!tmp.containsKey("F100")){
+            tmp.put("F100","");
+        }
+        // build ISO
+        ISOMsg iso= new ISOMsg();
+        iso.setPackager(packager);
+        iso.setMTI(tmp.get("F1"));
+        for(int i=2;i<=128;i++){
+            String key="F"+i;
+            if(tmp.containsKey(key)){
+                iso.set(i, tmp.get(key));
+            }
+        }
+        return iso;
+    }
+
+    private Map<String,String> isoToJson(ISOMsg iso)throws Exception{
+        Map<String,String> j=new HashMap<>();
+        if(iso==null){
+            j.put("F39","96");
+            return j;
+        }
+        j.put("F1", iso.getMTI());
+        for(int i=1;i<=128;i++){
+            if(iso.hasField(i)){
+                j.put("F"+i, iso.getString(i));
+            }
+        }
+        if(!j.containsKey("F39")){
+            j.put("F39","96");
+        }
+        return j;
+    }
+
+    private void logInbound(String svc,String path, Map<String,String> data){
+        System.out.println("=== ["+svc+"] Inbound "+path+" ===");
+        data.forEach((k,v)-> System.out.println(k+"="+v));
+        System.out.println("==========");
+    }
+    private void logInbound(String svc,String path, ISOMsg iso){
+        System.out.println("=== ["+svc+"] Inbound "+path+" ===");
+        IsoDebugHelper.debugIso(svc+" IN", iso);
+        LogHelper.logToBothBanks(iso,"IN");
+    }
+    private void logIsoOutbound(String svc,String path, ISOMsg iso){
+        System.out.println("=== ["+svc+"] "+path+" ===");
+        IsoDebugHelper.debugIso(svc+" OUT", iso);
+        LogHelper.logToBothBanks(iso,"OUT");
+    }
+}

@@ -1,0 +1,106 @@
+package API2.service;
+
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+import utils.IsoSocketUtils;
+
+import java.io.*;
+import java.net.Socket;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class NapasConnectionManager {
+    private final String host;
+    private final int port;
+    private final GenericPackager packager;
+
+    private Socket socket;
+    private DataInputStream in;
+    private DataOutputStream out;
+
+    private final ExecutorService readThread = Executors.newSingleThreadExecutor();
+    private final ConcurrentMap<String, CompletableFuture<ISOMsg>> pendingMap = new ConcurrentHashMap<>();
+
+    public NapasConnectionManager(String host, int port, GenericPackager packager) throws Exception {
+        this.host=host;
+        this.port=port;
+        this.packager=packager;
+        connect();
+    }
+
+    private void connect() throws Exception {
+        socket = new Socket(host, port);
+        // persistent => setSoTimeout(0) or 60000 etc.
+        socket.setSoTimeout(0);
+
+        in= new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+        out= new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+
+        System.out.println("[NapasConn2] connected => "+ host +":"+ port);
+
+        // start read loop
+        readThread.submit(this::readLoop);
+    }
+
+    private void readLoop() {
+        while(!socket.isClosed()) {
+            try{
+                ISOMsg iso = IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+                if(iso==null){
+                    System.out.println("[NapasConn2] read null => break");
+                    break;
+                }
+                String stan= iso.hasField(11)? iso.getString(11): null;
+                CompletableFuture<ISOMsg> fut= (stan==null)? null: pendingMap.remove(stan);
+                if(fut!=null){
+                    fut.complete(iso);
+                } else {
+                    // inbound from Napas => unexpected
+                    System.out.println("[NapasConn2] inbound request from Napas??? ignoring...");
+                }
+            } catch(IOException|ISOException e){
+                e.printStackTrace();
+                break;
+            }
+        }
+        close();
+    }
+
+    public ISOMsg sendAndWait(ISOMsg iso, long timeoutMs) throws ISOException, IOException {
+        if(!iso.hasField(11)){
+            throw new ISOException("[NapasConn2] missing F11 => can't wait");
+        }
+        String stan= iso.getString(11);
+        CompletableFuture<ISOMsg> fut = new CompletableFuture<>();
+        pendingMap.put(stan,fut);
+
+        IsoSocketUtils.sendIsoMessageWithHeader(out, iso);
+
+        if(timeoutMs>0){
+            ScheduledExecutorService sched = Executors.newSingleThreadScheduledExecutor();
+            sched.schedule(()-> {
+                if(!fut.isDone()) fut.complete(null);
+                sched.shutdown();
+            }, timeoutMs, TimeUnit.MILLISECONDS);
+        }
+        try {
+            return fut.get(timeoutMs+500, TimeUnit.MILLISECONDS);
+        } catch(Exception e){
+            return null;
+        } finally {
+            pendingMap.remove(stan);
+        }
+    }
+
+    public void close() {
+        try{
+            if(socket!=null && !socket.isClosed()){
+                socket.close();
+            }
+        }catch(Exception e){
+            e.printStackTrace();
+        }
+        readThread.shutdownNow();
+    }
+}

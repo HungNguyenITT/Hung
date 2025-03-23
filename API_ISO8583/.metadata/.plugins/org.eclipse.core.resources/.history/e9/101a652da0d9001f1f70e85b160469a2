@@ -1,0 +1,241 @@
+package BankPLAPI;
+
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+
+public class BankPhatLenhAPI {
+
+    private static final Map<String, Account> ACCOUNTS_SOURCE = new HashMap<>();
+    static {
+        ACCOUNTS_SOURCE.put("111111", new Account("111111", 2_000_000L, "ACTIVE"));
+        ACCOUNTS_SOURCE.put("222222", new Account("222222", 1_000_000L, "ACTIVE"));
+        ACCOUNTS_SOURCE.put("333333", new Account("333333", 5_000_000L, "LOCKED"));
+    }
+
+    private String lastSource = null;
+    private String lastDest   = null;
+
+    private static final String API1_URL = "http://localhost:8081/api/isoRequest";
+    private static final int INBOUND_SOCKET_PORT = 9098;
+
+    public static void main(String[] args) {
+        BankPhatLenhAPI app = new BankPhatLenhAPI();
+        app.startInboundSocket();
+        app.runMenu();
+    }
+
+    private void runMenu() {
+        Scanner sc = new Scanner(System.in);
+        while (true) {
+            System.out.println("\n=== BankPhatLenhAPI ===");
+            System.out.println("1. Inquiry (432020)");
+            System.out.println("2. Payment (912020)");
+            System.out.println("0. Exit");
+            System.out.print("Chọn: ");
+            String choice = sc.nextLine().trim();
+            if ("0".equals(choice)) {
+                System.out.println("Kết thúc.");
+                break;
+            }
+
+            System.out.print("sourcePan: ");
+            String sPan = sc.nextLine().trim();
+            System.out.print("destPan: ");
+            String dPan = sc.nextLine().trim();
+
+            if ("1".equals(choice)) {
+                doInquiry(sPan, dPan);
+            } else if ("2".equals(choice)) {
+                System.out.print("amount: ");
+                long amt = Long.parseLong(sc.nextLine().trim());
+                doPayment(sPan, dPan, amt);
+            } else {
+                System.out.println("Lựa chọn không hợp lệ!");
+            }
+        }
+    }
+
+    private void doInquiry(String sourcePan, String destPan) {
+        String rc = checkSource(sourcePan, 0L, false);
+        if (!"00".equals(rc)) {
+            System.out.println("[BankPhatLenhAPI] inquiry => field39=" + rc + " (source fail)");
+            return;
+        }
+
+        String jsonReq = "{\"mti\":\"0200\",\"processingCode\":\"432020\","
+                + "\"sourcePan\":\"" + sourcePan + "\","
+                + "\"destinationPan\":\"" + destPan + "\","
+                + "\"transactionAmount\":\"0\"}";
+
+        String resp = postJson(API1_URL, jsonReq);
+        System.out.println("[BankPhatLenhAPI] inquiry => respJSON=" + resp);
+
+        if (resp.contains("\"responseCode\":\"00\"")) {
+            lastSource = sourcePan;
+            lastDest   = destPan;
+        }
+    }
+
+    private void doPayment(String sourcePan, String destPan, long amt) {
+        if (!matchInquiry(sourcePan, destPan)) {
+            System.out.println("[BankPhatLenhAPI] mismatch => field39=94");
+            return;
+        }
+
+        String rc = checkSource(sourcePan, amt, true);
+        if (!"00".equals(rc)) {
+            System.out.println("[BankPhatLenhAPI] payment => field39=" + rc + " (source fail)");
+            return;
+        }
+
+        String amtStr = String.format("%012d", amt);
+        String jsonReq = "{\"mti\":\"0200\",\"processingCode\":\"912020\","
+                + "\"sourcePan\":\"" + sourcePan + "\","
+                + "\"destinationPan\":\"" + destPan + "\","
+                + "\"transactionAmount\":\"" + amtStr + "\"}";
+
+        String resp = postJson(API1_URL, jsonReq);
+        System.out.println("[BankPhatLenhAPI] payment => respJSON=" + resp);
+
+        if (!resp.contains("\"responseCode\":\"00\"")) {
+        } else {
+            lastSource = null;
+            lastDest   = null;
+        }
+    }
+
+    private String checkSource(String pan, long amt, boolean isPayment) {
+        Account a = ACCOUNTS_SOURCE.get(pan);
+        if (a == null) return "14";
+        if (!"ACTIVE".equalsIgnoreCase(a.status)) return "62";
+        if (isPayment) {
+            if (a.balance < amt) return "51";
+            a.balance -= amt;
+        }
+        return "00";
+    }
+
+    private boolean matchInquiry(String sPan, String dPan) {
+        if (lastSource == null || lastDest == null) return false;
+        return (lastSource.equals(sPan) && lastDest.equals(dPan));
+    }
+
+    private String postJson(String urlStr, String body) {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(urlStr);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setConnectTimeout(20000);  // Tăng thời gian timeout (20s)
+            conn.setReadTimeout(20000);     // Tăng thời gian timeout (20s)
+            conn.connect();
+
+            byte[] bodyBytes = body.getBytes("UTF-8");
+            int dataSize = bodyBytes.length;
+
+            // Nếu gói tin quá lớn, chia nhỏ nó và gửi từng phần
+            if (dataSize > 1024 * 500) {  // Nếu dữ liệu vượt quá 500KB, chia nhỏ
+                sendLargeData(conn, bodyBytes);
+            } else {
+                try (OutputStream out = conn.getOutputStream()) {
+                    out.write(bodyBytes);
+                }
+            }
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (InputStream in = conn.getInputStream()) {
+                byte[] buf = new byte[4096];
+                int len;
+                while ((len = in.read(buf)) != -1) {
+                    baos.write(buf, 0, len);
+                }
+            }
+            return baos.toString("UTF-8");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "{\"error\":\"" + e.getMessage() + "\"}";
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    // Tính toán và chia nhỏ gói tin nếu quá lớn
+    private void sendLargeData(HttpURLConnection conn, byte[] data) throws IOException {
+        int maxPacketSize = 1024 * 100; // Giới hạn mỗi gói tin là 100KB (có thể điều chỉnh tùy vào yêu cầu)
+        int totalSize = data.length;
+        int sentSize = 0;
+        OutputStream out = conn.getOutputStream();
+
+        while (sentSize < totalSize) {
+            int remaining = totalSize - sentSize;
+            int packetSize = Math.min(remaining, maxPacketSize);
+            
+            // Gửi một phần của gói tin
+            byte[] packet = new byte[packetSize];
+            System.arraycopy(data, sentSize, packet, 0, packetSize);
+            out.write(packet);
+            out.flush();  // Đảm bảo gói tin đã được gửi đi
+            
+            // Cập nhật số byte đã gửi
+            sentSize += packetSize;
+        }
+
+        // Gửi tín hiệu kết thúc khi hết dữ liệu
+        out.write("END".getBytes("UTF-8"));
+        out.flush();
+    }
+
+    private void startInboundSocket() {
+        new Thread(() -> {
+            try (ServerSocket ss = new ServerSocket(INBOUND_SOCKET_PORT)) {
+                System.out.println("[BankPhatLenhAPI] inbound socket on port=" + INBOUND_SOCKET_PORT);
+                while (true) {
+                    Socket client = ss.accept();
+                    new Thread(() -> handleInbound(client)).start();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void handleInbound(Socket sock) {
+        try (InputStream in = sock.getInputStream();
+             OutputStream out = sock.getOutputStream()) {
+
+            byte[] buf = new byte[4096];
+            int len = in.read(buf);
+            if (len <= 0) return;
+            String inbound = new String(buf, 0, len, "UTF-8");
+
+            System.out.println("[BankPhatLenhAPI] inbound => \n" + inbound);
+
+            out.write("OK".getBytes("UTF-8"));
+            out.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    static class Account {
+        String pan;
+        long balance;
+        String status;
+
+        public Account(String p, long b, String s) {
+            this.pan = p;
+            this.balance = b;
+            this.status = s;
+        }
+    }
+}

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Rename type &apos;restapi.controller.HttpJsonUtil&apos; to &apos;NapasHttpJsonClient&apos;&#x0D;&#x0A;- Original project: &apos;bai2-restfulApiServer&apos;&#x0D;&#x0A;- Original element: &apos;restapi.controller.HttpJsonUtil&apos;&#x0D;&#x0A;- Renamed element: &apos;restapi.controller.NapasHttpJsonClient&apos;&#x0D;&#x0A;- Update references to refactored element&#x0D;&#x0A;- Update textual occurrences in comments and strings" description="Rename type &apos;HttpJsonUtil&apos;" flags="589830" id="org.eclipse.jdt.ui.rename.type" input="/src\/main\/java&lt;restapi.controller{HttpJsonUtil.java[HttpJsonUtil" matchStrategy="1" name="NapasHttpJsonClient" qualified="false" references="true" similarDeclarations="false" stamp="1735552276715" textual="false" version="1.0"/>
+</session>

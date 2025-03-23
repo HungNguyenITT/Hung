@@ -1,0 +1,267 @@
+//package API1.controller;
+//
+//
+//import org.jpos.iso.ISOException;
+//import org.jpos.iso.ISOMsg;
+//import org.jpos.iso.packager.ISO87APackager;
+//import org.springframework.stereotype.Component;
+//import utils.IsoDebugHelper;
+//import utils.IsoSocketUtils;
+//
+//import javax.annotation.PostConstruct;
+//import java.io.*;
+//import java.net.Socket;
+//import java.net.SocketTimeoutException;
+//import java.util.concurrent.*;
+//import java.util.HashMap;
+//import java.util.Map;
+//
+///**
+// * API1 kết nối NAPAS c=1414 (Napas mở port 1414 cho bankCode=970403).
+// * - Khi Napas gửi ISO => read => convert iso->json => doHttpPost(ZALOPAY_URL) => parse => isoResp => return Napas
+// * - Khi API1 muốn gửi Napas => sendAndWaitResponse(...)
+// */
+//@Component
+//public class API1SocketServer {
+//
+//    private static final String NAPAS_HOST="localhost";
+//    private static final int NAPAS_PORT=1414; // Napas lắng c=1414 => API1 connect
+//
+//    private static final String ZALOPAY_URL="http://localhost:1111/zalo"; 
+//    // Giả sử ZaloPay lắng c=1111, path /zalo/... 
+//    // => Chúng ta doHttpPost(...) sang /inquiry hay /payment
+//
+//    private Socket socket;
+//    private OutputStream out;
+//    private InputStream in;
+//
+//    // Map STAN=>CompletableFuture để ghép request/response
+//    private final Map<String,CompletableFuture<ISOMsg>> pendingMap = new ConcurrentHashMap<>();
+//
+//    // Thread để đọc inbound Napas
+//    private final ExecutorService readerThread = Executors.newSingleThreadExecutor();
+//
+//    @PostConstruct
+//    public void start(){
+//        // Tự động connect Napas
+//        new Thread(new Runnable(){
+//            public void run(){
+//                connectNapas();
+//            }
+//        }).start();
+//    }
+//
+//    private void connectNapas(){
+//        while(true){
+//            try {
+//                socket = new Socket(NAPAS_HOST, NAPAS_PORT);
+//                socket.setSoTimeout(0); // infinite
+//                out = socket.getOutputStream();
+//                in  = socket.getInputStream();
+//
+//                System.out.println("[API1] connected Napas => "+NAPAS_HOST+":"+NAPAS_PORT);
+//                startReading();
+//                break;
+//            } catch(Exception e){
+//                e.printStackTrace();
+//                System.err.println("[API1] connect Napas fail => retry 5s...");
+//                try{Thread.sleep(5000);}catch(Exception ignore){}
+//            }
+//        }
+//    }
+//
+//    private void startReading(){
+//        readerThread.submit(new Runnable(){
+//            public void run(){
+//                ISO87APackager packager=new ISO87APackager();
+//                while(true){
+//                    try {
+//                        ISOMsg iso=null;
+//                        try {
+//                            iso= IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+//                        } catch(SocketTimeoutException te){
+//                            continue;
+//                        } catch(EOFException eof){
+//                            System.err.println("[API1] Napas disconnected");
+//                            break;
+//                        } catch(Exception e){
+//                            e.printStackTrace();
+//                            break;
+//                        }
+//                        if(iso==null){
+//                            System.out.println("[API1] read null => break");
+//                            break;
+//                        }
+//                        // inbound from Napas
+//                        IsoDebugHelper.debugIso("[API1] inbound from Napas", iso);
+//
+//                        String stan= iso.hasField(11)? iso.getString(11): null;
+//                        CompletableFuture<ISOMsg> fut= (stan==null)? null : pendingMap.remove(stan);
+//                        if(fut!=null){
+//                            // response cho request pending
+//                            fut.complete(iso);
+//                        } else {
+//                            // request mới => convert iso->json => doHttpPost => parse => build iso => respond Napas
+//                            handleInboundRequest(iso);
+//                        }
+//                    } catch(Exception e){
+//                        e.printStackTrace();
+//                        break;
+//                    }
+//                }
+//                // loop ended => reconnect
+//                System.out.println("[API1] readLoop ended => reconnect Napas?");
+//                closeSocket();
+//                connectNapas();
+//            }
+//        });
+//    }
+//
+//    private void handleInboundRequest(ISOMsg req) throws Exception{
+//        // 1) convert ISO -> JSON => doHttpPost => get resp => parse => build isoResp => send Napas
+//        String pc = req.hasField(3)? req.getString(3) : "";
+//        String endpoint;
+//        if("432020".equals(pc)) endpoint="/inquiry";
+//        else if("912020".equals(pc)) endpoint="/payment";
+//        else {
+//            // pc invalid => respond rc=96
+//            ISOMsg r= createResponse(req,"96");
+//            sendMessage(r);
+//            return;
+//        }
+//
+//        // Lấy field(2,103,4) => build JSON
+//        String src= req.hasField(2)? req.getString(2): "";
+//        String dst= req.hasField(103)? req.getString(103): "";
+//        long amt=0L;
+//        if(req.hasField(4)){
+//            String s= req.getString(4).replaceAll("^0+","");
+//            if(!s.isEmpty()) amt= Long.parseLong(s);
+//        }
+//
+//        // JSON
+//        String jsonBody= "{\"sourcePan\":\""+src+"\",\"destPan\":\""+dst+"\",\"amount\":\""+amt+"\"}";
+//        String respJson= doHttpPost(ZALOPAY_URL+endpoint, jsonBody);
+//        if(respJson==null){
+//            // respond rc=68
+//            ISOMsg r= createResponse(req,"68");
+//            sendMessage(r);
+//            return;
+//        }
+//        // parse field39 from respJson
+//        String rc="96";
+//        int idx= respJson.indexOf("\"field39\":\"");
+//        if(idx>=0){
+//            int st= idx + "\"field39\":\"".length();
+//            int ed= respJson.indexOf("\"", st);
+//            if(ed>st) rc= respJson.substring(st,ed);
+//        }
+//        ISOMsg r= createResponse(req, rc);
+//        sendMessage(r);
+//    }
+//
+//    private ISOMsg createResponse(ISOMsg req, String rc)throws ISOException{
+//        ISOMsg r=new ISOMsg();
+//        r.setPackager(new ISO87APackager());
+//        int mtiIn= Integer.parseInt(req.getMTI());
+//        r.setMTI(String.format("%04d", mtiIn+10));
+//
+//        copyIfPresent(req, r,2);
+//        copyIfPresent(req, r,3);
+//        copyIfPresent(req, r,4);
+//        copyIfPresent(req, r,11);
+//        copyIfPresent(req, r,12);
+//        copyIfPresent(req, r,13);
+//        copyIfPresent(req, r,32);
+//        copyIfPresent(req, r,37);
+//        copyIfPresent(req, r,100);
+//        copyIfPresent(req, r,103);
+//        r.set(39,rc);
+//        return r;
+//    }
+//
+//    private void copyIfPresent(ISOMsg f, ISOMsg t, int i)throws ISOException{
+//        if(f.hasField(i)){
+//            t.set(i, f.getString(i));
+//        }
+//    }
+//
+//    private String doHttpPost(String url, String body){
+//        java.net.HttpURLConnection conn=null;
+//        try {
+//            java.net.URL u=new java.net.URL(url);
+//            conn=(java.net.HttpURLConnection)u.openConnection();
+//            conn.setRequestMethod("POST");
+//            conn.setDoOutput(true);
+//            conn.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+//            conn.setConnectTimeout(5000);
+//            conn.setReadTimeout(5000);
+//            conn.connect();
+//            OutputStream oo= conn.getOutputStream();
+//            oo.write(body.getBytes("UTF-8"));
+//            oo.close();
+//
+//            ByteArrayOutputStream baos=new ByteArrayOutputStream();
+//            InputStream inp= conn.getInputStream();
+//            byte[] buf=new byte[4096];
+//            int len;
+//            while((len=inp.read(buf))!=-1){
+//                baos.write(buf,0,len);
+//            }
+//            inp.close();
+//            return baos.toString("UTF-8");
+//        } catch(Exception e){
+//            e.printStackTrace();
+//        } finally {
+//            if(conn!=null) conn.disconnect();
+//        }
+//        return null;
+//    }
+//
+//    public ISOMsg sendAndWaitResponse(ISOMsg iso, long timeoutMs) throws ISOException,IOException{
+//        // (Nếu bạn cần outbound Zalo->API1->Napas. 
+//        //  Tại đây convert json->iso => iso => send Napas => read response)
+//        //  => Code tuỳ logic. 
+//        //  Tương tự handleInboundRequest.
+//
+//        String stan= iso.hasField(11)? iso.getString(11) : null;
+//        if(stan==null){
+//            throw new ISOException("[API1] missing field(11)");
+//        }
+//        CompletableFuture<ISOMsg> fut=new CompletableFuture<ISOMsg>();
+//        pendingMap.put(stan, fut);
+//
+//        sendMessage(iso);
+//
+//        if(timeoutMs>0){
+//            ScheduledExecutorService sche= Executors.newSingleThreadScheduledExecutor();
+//            sche.schedule(new Runnable(){
+//                public void run(){
+//                    if(!fut.isDone()) fut.complete(null);
+//                    sche.shutdown();
+//                }
+//            }, timeoutMs, TimeUnit.MILLISECONDS);
+//        }
+//        try {
+//            return fut.get(timeoutMs+500, TimeUnit.MILLISECONDS);
+//        } catch(Exception e){
+//            return null;
+//        } finally {
+//            pendingMap.remove(stan);
+//        }
+//    }
+//
+//    public void sendMessage(ISOMsg iso)throws ISOException,IOException{
+//        IsoDebugHelper.debugIso("[API1] => Napas", iso);
+//        IsoSocketUtils.sendIsoMessageWithHeader(out, iso);
+//        out.flush();
+//    }
+//
+//    private void closeSocket(){
+//        try {
+//            if(socket!=null) socket.close();
+//        } catch(Exception e){
+//            e.printStackTrace();
+//        }
+//    }
+//}

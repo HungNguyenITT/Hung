@@ -1,0 +1,38 @@
+package API2.controller;
+
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import java.util.Map;
+import java.util.HashMap;
+
+/**
+ * NganLuong => POST http://localhost:8085/api2/inquiry/payment
+ * Chỉ in console JSON => trả field39=00
+ * (Chỉ 1 cổng inbound Napas => 1515 => Ko forward Napas)
+ */
+@RestController
+@RequestMapping("/api2")
+public class API2Controller {
+
+    @PostMapping(value="/inquiry", consumes= MediaType.APPLICATION_JSON_VALUE,
+                 produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,String> handleInquiry(@RequestBody Map<String,String> body){
+        System.out.println("\n[API2Controller] /inquiry => body="+body);
+
+        // Tùy logic => tạm trả "field39=00"
+        Map<String,String> resp=new HashMap<String,String>();
+        resp.put("field39","00");
+        return resp;
+    }
+
+    @PostMapping(value="/payment", consumes=MediaType.APPLICATION_JSON_VALUE,
+                 produces=MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,String> handlePayment(@RequestBody Map<String,String> body){
+        System.out.println("\n[API2Controller] /payment => body="+body);
+
+        Map<String,String> resp=new HashMap<String,String>();
+        resp.put("field39","00");
+        return resp;
+    }
+}
+

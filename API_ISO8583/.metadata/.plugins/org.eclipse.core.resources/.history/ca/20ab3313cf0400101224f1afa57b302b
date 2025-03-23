@@ -1,0 +1,66 @@
+package utils;
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.GenericPackager;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+public class IsoSocketUtils {
+
+    public static void sendIsoMessageWithHeader(OutputStream out, ISOMsg isoMsg) throws Exception {
+        byte[] isoData = isoMsg.pack();
+        int length = isoData.length;
+        
+        // Ghi 4 byte header (độ dài message) dưới dạng big-endian
+        DataOutputStream dos = new DataOutputStream(out);
+        dos.writeInt(length); // Ghi 4 byte độ dài
+        dos.write(isoData);   // Ghi dữ liệu ISO message
+        dos.flush();
+
+        System.out.println("[IsoSocketUtils] Sent message with header. Length: " + length + ", Raw data length: " + isoData.length);
+        System.out.println("[IsoSocketUtils] Raw data sent (hex): " + bytesToHex(isoData));
+    }
+
+    public static ISOMsg readIsoMessageWithHeader(InputStream in, GenericPackager packager) throws Exception {
+        DataInputStream dis = new DataInputStream(in);
+
+        // Đọc 4 byte header để lấy độ dài
+        int length = dis.readInt();
+        if (length <= 0 || length > 65535) { // Giới hạn độ dài hợp lý
+            throw new IOException("Invalid message length in header: " + length);
+        }
+
+        System.out.println("[IsoSocketUtils] Read header, message length: " + length);
+
+        // Đọc dữ liệu dựa trên độ dài trong header
+        byte[] isoData = new byte[length];
+        int bytesRead = 0;
+        while (bytesRead < length) {
+            int read = dis.read(isoData, bytesRead, length - bytesRead);
+            if (read < 0) {
+                throw new IOException("End of stream reached before reading full message");
+            }
+            bytesRead += read;
+        }
+
+        System.out.println("[IsoSocketUtils] Raw data received (hex): " + bytesToHex(isoData));
+
+        // Giải nén dữ liệu thành ISOMsg
+        ISOMsg response = new ISOMsg();
+        response.setPackager(packager);
+        response.unpack(isoData);
+        return response;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+}

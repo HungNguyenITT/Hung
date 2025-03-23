@@ -1,0 +1,52 @@
+package NganLuong.controller;
+
+import NganLuong.service.NganLuongService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/ngl")
+public class NganLuongController {
+    @Autowired
+    private NganLuongService nganLuongService;
+
+    @PostMapping(value="/inquiry", consumes= MediaType.APPLICATION_JSON_VALUE, produces= MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,String> inquiry(@RequestBody Map<String,String> request){
+        try {
+            Map<String,String> resp = nganLuongService.processInquiry(request);
+            if(resp==null || resp.isEmpty()){
+                return errorResp("No response from API2/Napas");
+            }
+            return resp;
+        }catch(Exception e){
+            e.printStackTrace();
+            return errorResp("Error => "+ e.getMessage());
+        }
+    }
+
+    @PostMapping(value="/payment", consumes= MediaType.APPLICATION_JSON_VALUE, produces= MediaType.APPLICATION_JSON_VALUE)
+    public Map<String,String> payment(@RequestBody Map<String,String> request){
+        try {
+            Map<String,String> resp = nganLuongService.processPayment(request);
+            if(resp==null || resp.isEmpty()){
+                return errorResp("No response from API2/Napas");
+            }
+            return resp;
+        }catch(Exception e){
+            e.printStackTrace();
+            return errorResp("Error => "+ e.getMessage());
+        }
+    }
+
+    private Map<String,String> errorResp(String msg){
+        Map<String,String> err= new HashMap<>();
+        err.put("F1","0210");
+        err.put("F39","96");
+        err.put("error", msg);
+        return err;
+    }
+}

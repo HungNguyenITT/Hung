@@ -1,0 +1,115 @@
+package Napas.server;
+
+import org.jpos.iso.ISOException;
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.ISO87APackager;
+import utils.IsoSocketUtils;
+
+import java.io.*;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.util.concurrent.*;
+
+public class BankConnectionHandler {
+    private final Socket socket;
+    private final String bankCode;
+    private final SocketServer parent;
+
+    private final ConcurrentMap<String, CompletableFuture<ISOMsg>> pendingMap = new ConcurrentHashMap<>();
+    private final ExecutorService reader = Executors.newSingleThreadExecutor();
+
+    public BankConnectionHandler(Socket s, String bankCode, SocketServer parent) throws IOException {
+        this.socket = s;
+        this.bankCode = bankCode;
+        this.parent = parent;
+        this.socket.setSoTimeout(0); // Timeout vô hạn để đọc
+        System.out.println("[BankConnectionHandler] Created handler for bank=" + bankCode);
+
+        startReading();
+    }
+
+    private void startReading() {
+        reader.submit(() -> {
+            try (InputStream in = socket.getInputStream()) {
+                ISO87APackager packager = new ISO87APackager();
+                while (!socket.isClosed()) {
+                    ISOMsg iso = null;
+                    try {
+                        System.out.println("[BankConnectionHandler] Waiting for ISO message from bank=" + bankCode);
+                        iso = IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+                        System.out.println("[BankConnectionHandler] Received ISO message from bank=" + bankCode);
+                    } catch (SocketTimeoutException te) {
+                        System.err.println("[BankConnectionHandler] Timeout while reading from bank=" + bankCode);
+                        continue;
+                    } catch (EOFException eof) {
+                        System.err.println("[BankConnectionHandler] " + bankCode + " disconnected");
+                        break;
+                    } catch (Exception e) {
+                        System.err.println("[BankConnectionHandler] Error reading ISO message from bank=" + bankCode + ": " + e.getMessage());
+                        e.printStackTrace();
+                        break;
+                    }
+                    if (iso == null) {
+                        System.out.println("[BankConnectionHandler] " + bankCode + " iso=null => break");
+                        break;
+                    }
+                    String stan = iso.hasField(11) ? iso.getString(11) : null;
+                    CompletableFuture<ISOMsg> fut = (stan == null) ? null : pendingMap.remove(stan);
+
+                    if (fut != null) {
+                        System.out.println("[BankConnectionHandler] Received response for STAN=" + stan + " from bank=" + bankCode);
+                        fut.complete(iso);
+                    } else {
+                        System.out.println("[BankConnectionHandler] Forwarding new request from bank=" + bankCode);
+                        parent.onInboundMessage(iso, bankCode);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[BankConnectionHandler] Error in reading thread for bank=" + bankCode + ": " + e.getMessage());
+                e.printStackTrace();
+            } finally {
+                close();
+            }
+        });
+    }
+
+    public void sendMessage(ISOMsg iso) throws ISOException, IOException {
+        OutputStream out = socket.getOutputStream();
+        System.out.println("[BankConnectionHandler] Sending ISO message to bank=" + bankCode);
+        IsoSocketUtils.sendIsoMessageWithHeader(out, iso);
+        System.out.println("[BankConnectionHandler] Sent ISO message to bank=" + bankCode);
+    }
+
+    public CompletableFuture<ISOMsg> sendAndWaitResponse(ISOMsg iso, long timeoutMillis) throws ISOException, IOException {
+        String stan = iso.hasField(11) ? iso.getString(11) : null;
+        if (stan == null) {
+            throw new ISOException("[BankConnectionHandler] Missing field(11) => cannot match response");
+        }
+        CompletableFuture<ISOMsg> fut = new CompletableFuture<>();
+        pendingMap.put(stan, fut);
+
+        sendMessage(iso);
+
+        if (timeoutMillis > 0) {
+            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+            scheduler.schedule(() -> {
+                if (!fut.isDone()) {
+                    System.err.println("[BankConnectionHandler] Timeout waiting for response from bank=" + bankCode + ", STAN=" + stan);
+                    fut.complete(null);
+                }
+                scheduler.shutdown();
+            }, timeoutMillis, TimeUnit.MILLISECONDS);
+        }
+        return fut;
+    }
+
+    public void close() {
+        reader.shutdownNow();
+        try {
+            if (!socket.isClosed()) socket.close();
+            System.out.println("[BankConnectionHandler] Socket closed for bank=" + bankCode);
+        } catch (IOException e) {
+            System.err.println("[BankConnectionHandler] Error closing socket for bank=" + bankCode + ": " + e.getMessage());
+        }
+    }
+}

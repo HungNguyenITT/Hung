@@ -1,0 +1,23 @@
+[2025-02-26 22:08:00.431] (NganLuong inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="888888"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="32" value="970403"/>
+  <field id="47" value="101010"/>
+  <field id="100" value="970404"/>
+</isomsg>
+
+[2025-02-26 22:08:00.432] (NganLuong inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="888888"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="32" value="970403"/>
+  <field id="39" value="00"/>
+  <field id="47" value="101010"/>
+  <field id="100" value="970404"/>
+</isomsg>
+

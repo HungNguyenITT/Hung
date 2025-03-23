@@ -1,0 +1,319 @@
+[2025-02-19 23:10:34.566] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="447397"/>
+  <field id="12" value="231034"/>
+  <field id="13" value="0219"/>
+  <field id="32" value="970401"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-19 23:10:34.566] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="447397"/>
+  <field id="12" value="231034"/>
+  <field id="13" value="0219"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-21 15:59:28.279] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="817656"/>
+  <field id="12" value="155927"/>
+  <field id="13" value="0221"/>
+  <field id="32" value="970401"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-21 15:59:28.289] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="817656"/>
+  <field id="12" value="155927"/>
+  <field id="13" value="0221"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-21 16:35:21.022] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="590112"/>
+  <field id="12" value="163520"/>
+  <field id="13" value="0221"/>
+  <field id="32" value="970401"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-21 16:35:21.029] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="590112"/>
+  <field id="12" value="163520"/>
+  <field id="13" value="0221"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-26 21:47:03.878] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="444849"/>
+  <field id="12" value="214703"/>
+  <field id="13" value="0226"/>
+  <field id="32" value="970401"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-26 21:47:03.878] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="444849"/>
+  <field id="12" value="214703"/>
+  <field id="13" value="0226"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-26 21:49:52.975] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="540201"/>
+  <field id="12" value="214952"/>
+  <field id="13" value="0226"/>
+  <field id="32" value="970401"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-26 21:49:52.975] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="540201"/>
+  <field id="12" value="214952"/>
+  <field id="13" value="0226"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="47" value="444444"/>
+  <field id="100" value="970402"/>
+</isomsg>
+
+[2025-02-28 14:24:10.842] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="722461"/>
+  <field id="12" value="142410"/>
+  <field id="13" value="0228"/>
+  <field id="32" value="970401"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-02-28 14:24:10.847] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="722461"/>
+  <field id="12" value="142410"/>
+  <field id="13" value="0228"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 17:58:25.578] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="663859"/>
+  <field id="12" value="175825"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 17:58:25.582] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="663859"/>
+  <field id="12" value="175825"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 22:27:49.873] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="357354"/>
+  <field id="12" value="222749"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 22:27:49.879] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="357354"/>
+  <field id="12" value="222749"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 22:33:44.458] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="112550"/>
+  <field id="12" value="223344"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 22:33:44.458] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="112550"/>
+  <field id="12" value="223344"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 22:36:30.711] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="782742"/>
+  <field id="12" value="223630"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 22:36:30.713] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="782742"/>
+  <field id="12" value="223630"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 23:00:14.110] (TCB inbound request)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="809471"/>
+  <field id="12" value="230013"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+
+[2025-03-13 23:00:14.110] (TCB inbound response)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="111111"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="809471"/>
+  <field id="12" value="230013"/>
+  <field id="13" value="0313"/>
+  <field id="32" value="970401"/>
+  <field id="39" value="00"/>
+  <field id="100" value="970402"/>
+  <field id="103" value="444444"/>
+</isomsg>
+

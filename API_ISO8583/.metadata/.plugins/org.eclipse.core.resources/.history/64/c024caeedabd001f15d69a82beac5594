@@ -1,0 +1,54 @@
+package API.ISO8583.dto;
+
+import java.util.Map;
+
+public class ISO8583RequestDTO {
+    private String mti;               // Message Type Indicator (MTI)
+    private String pan;               // Primary Account Number (PAN)
+    private String processingCode;    // Processing Code
+    private String transactionAmount; // Transaction Amount
+    private Map<Integer, String> fields; // Các trường dữ liệu ISO8583 (dạng Map)
+
+    // Getters và Setters
+    public String getMti() {
+        return mti;
+    }
+
+    public void setMti(String mti) {
+        this.mti = mti;
+    }
+
+    public String getPan() {
+        return pan;
+    }
+
+    public void setPan(String pan) {
+        this.pan = pan;
+    }
+
+    public String getProcessingCode() {
+        return processingCode;
+    }
+
+    public void setProcessingCode(String processingCode) {
+        this.processingCode = processingCode;
+    }
+
+    public String getTransactionAmount() {
+        return transactionAmount;
+    }
+
+    public void setTransactionAmount(String transactionAmount) {
+        this.transactionAmount = transactionAmount;
+    }
+
+    public Map<Integer, String> getFields() {
+        return fields;
+    }
+
+    public void setFields(Map<Integer, String> fields) {
+        this.fields = fields;
+    }
+}
+
+

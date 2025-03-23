@@ -1,0 +1,29 @@
+[2025-03-23 14:26:02.007] ([Napas] inbound bank=970404)
+<isomsg>
+  <field id="0" value="0200"/>
+  <field id="2" value="101010"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="608025"/>
+  <field id="12" value="142601"/>
+  <field id="13" value="0323"/>
+  <field id="32" value="970404"/>
+  <field id="100" value="970401"/>
+  <field id="103" value="111111"/>
+</isomsg>
+
+[2025-03-23 14:26:17.033] ([Napas] respond => bank=970404)
+<isomsg>
+  <field id="0" value="0210"/>
+  <field id="2" value="101010"/>
+  <field id="3" value="432020"/>
+  <field id="4" value="000000000000"/>
+  <field id="11" value="608025"/>
+  <field id="12" value="142601"/>
+  <field id="13" value="0323"/>
+  <field id="32" value="970404"/>
+  <field id="39" value="68"/>
+  <field id="100" value="970401"/>
+  <field id="103" value="111111"/>
+</isomsg>
+

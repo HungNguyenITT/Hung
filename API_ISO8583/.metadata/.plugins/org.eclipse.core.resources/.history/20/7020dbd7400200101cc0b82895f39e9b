@@ -1,0 +1,107 @@
+package API2.controller;
+
+
+import org.jpos.iso.ISOMsg;
+import org.jpos.iso.packager.ISO87APackager;
+import org.springframework.stereotype.Component;
+import utils.IsoDebugHelper;
+import utils.IsoSocketUtils;
+import utils.LogHelper;
+
+import javax.annotation.PostConstruct;
+import java.io.*;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+/**
+ * "970404 => 1515" => Napas => connect c=1515 => API2
+ * Chỉ inbound => process => resp=00
+ * Ko có NAPAS_PORT => ko forward Napas
+ */
+@Component
+public class Api2SocketServer implements Runnable {
+
+    private static final int INBOUND_PORT=1515;
+
+    @PostConstruct
+    public void start(){
+        new Thread(this).start();
+    }
+
+    @Override
+    public void run(){
+        try(ServerSocket ss=new ServerSocket(INBOUND_PORT)){
+            System.out.println("[Api2SocketServer] Listening inbound ISO c="+INBOUND_PORT);
+            while(true){
+                final Socket client= ss.accept();
+                new Thread(new Runnable(){
+                    public void run(){
+                        handleInbound(client);
+                    }
+                }).start();
+            }
+        } catch(Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    private void handleInbound(Socket sock){
+        InputStream in=null;
+        OutputStream out=null;
+        try {
+            in= sock.getInputStream();
+            out= sock.getOutputStream();
+            ISO87APackager packager=new ISO87APackager();
+
+            ISOMsg isoReq= IsoSocketUtils.readIsoMessageWithHeader(in, packager);
+            IsoDebugHelper.debugIso("[API2] Inbound ISO from Napas", isoReq);
+            LogHelper.logToBothBanks(isoReq, "API2 inbound from Napas");
+
+            // resp=00
+            ISOMsg isoResp= processInbound(isoReq);
+
+            IsoDebugHelper.debugIso("[API2] Outbound ISO to Napas", isoResp);
+            LogHelper.logToBothBanks(isoResp, "API2 outbound to Napas");
+
+            IsoSocketUtils.sendIsoMessageWithHeader(out, isoResp);
+            out.flush();
+        } catch(Exception e){
+            e.printStackTrace();
+        } finally {
+            if(in!=null){
+                try{in.close();}catch(Exception ignore){}
+            }
+            if(out!=null){
+                try{out.close();}catch(Exception ignore){}
+            }
+            try{sock.close();}catch(Exception ignore){}
+        }
+    }
+
+    private ISOMsg processInbound(ISOMsg req)throws Exception{
+        ISOMsg r=new ISOMsg();
+        r.setPackager(new ISO87APackager());
+
+        int mti= Integer.parseInt(req.getMTI());
+        r.setMTI(String.format("%04d", mti+10));
+
+        copyIfPresent(req, r,2);
+        copyIfPresent(req, r,3);
+        copyIfPresent(req, r,4);
+        copyIfPresent(req, r,11);
+        copyIfPresent(req, r,12);
+        copyIfPresent(req, r,13);
+        copyIfPresent(req, r,32);
+        copyIfPresent(req, r,100);
+        copyIfPresent(req, r,103);
+
+        r.set(39,"00");
+        return r;
+    }
+
+    private void copyIfPresent(ISOMsg f, ISOMsg t, int i)throws Exception{
+        if(f.hasField(i)){
+            t.set(i, f.getString(i));
+        }
+    }
+}

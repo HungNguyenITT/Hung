@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring accessors="true" comment="Delete element from project &apos;simuRestfulApi-bai2&apos;&#x0D;&#x0A;- Original project: &apos;simuRestfulApi-bai2&apos;&#x0D;&#x0A;- Original element: &apos;simuRestfulApi-bai2/src/test/java/org.simuRestfulApi.bai2&apos;" description="Delete element" element1="/src\/test\/java&lt;org.simuRestfulApi.bai2" element2="/src\/test\/java&lt;org.simuRestfulApi" element3="/src\/test\/java&lt;org" elements="3" flags="589830" id="org.eclipse.jdt.ui.delete" resources="0" stamp="1735286153692" subPackages="false" version="1.0"/>
+</session>

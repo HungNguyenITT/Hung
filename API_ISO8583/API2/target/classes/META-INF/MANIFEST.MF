@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Implementation-Title: B-API-PL
+Implementation-Version: 1.0
+Built-By: Acer
+Implementation-Vendor-Id: com.ndhug
+Build-Jdk: 1.8.0_411
+Implementation-URL: https://projects.spring.io/spring-boot/#/spring-bo
+ ot-starter-parent/B-API-PL
+Created-By: Maven Integration for Eclipse
+
